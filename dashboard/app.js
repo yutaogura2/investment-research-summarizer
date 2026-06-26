@@ -267,10 +267,104 @@ function calculateValuation(valuation) {
   return { currency: valuation.currency || "", currentPrice, expectedPrice, expectedReturn: currentPrice ? expectedPrice / currentPrice - 1 : null, rows };
 }
 
-function renderAuditStrip(score, cov, issues) {
+function latestFinancialKpi(data) {
+  const kpis = data.financials?.kpis;
+  if (!Array.isArray(kpis) || !kpis.length) return null;
+  return kpis.slice().sort((a, b) => Number(a.fy || 0) - Number(b.fy || 0)).at(-1);
+}
+
+function evaluateInvestability(data, score, cov, issues, valuation) {
+  const evidence = data.evidence || [];
+  const categories = new Set(evidence.map((row) => normalize(row.category)).filter(Boolean));
+  const sourceTypes = evidence.map(inferSourceType);
+  const institutionalSources = new Set(["primary_filing", "exchange", "regulator", "company_ir", "market_data", "consensus", "sell_side"]);
+  const institutionalRatio = sourceTypes.length ? sourceTypes.filter((source) => institutionalSources.has(source)).length / sourceTypes.length : 0;
+  const primaryRatio = sourceTypes.length ? sourceTypes.filter((source) => ["primary_filing", "exchange", "regulator"].includes(source)).length / sourceTypes.length : 0;
+  const coreCategories = ["financials", "valuation", "estimates", "market", "events_catalysts", "risk_scenarios"];
+  const missingCore = coreCategories.filter((category) => !categories.has(category));
+  const institutionalRequired = ["ownership_flows", "capital_allocation", "governance_legal"];
+  const missingInstitutional = institutionalRequired.filter((category) => !categories.has(category));
+  const errorCount = issues.filter((issue) => issue.severity === "error").length;
+  const warningCount = issues.filter((issue) => issue.severity === "warning").length;
+  const currentPrice = valuation?.currentPrice || 0;
+  const scenarioPrices = valuation?.rows?.map((row) => row.price).filter((price) => Number.isFinite(price)) || [];
+  const bearPrice = scenarioPrices.length && currentPrice ? Math.min(...scenarioPrices) : null;
+  const bullPrice = scenarioPrices.length && currentPrice ? Math.max(...scenarioPrices) : null;
+  const expectedReturn = valuation?.expectedReturn ?? null;
+  const bearReturn = bearPrice === null ? null : bearPrice / currentPrice - 1;
+  const bullReturn = bullPrice === null ? null : bullPrice / currentPrice - 1;
+  const riskReward = expectedReturn !== null && bearReturn !== null && bearReturn < 0 ? expectedReturn / Math.abs(bearReturn) : null;
+  const latestKpi = latestFinancialKpi(data);
+
+  let investScore = 0;
+  investScore += Math.max(0, 18 - errorCount * 8 - warningCount * 1.5);
+  investScore += Math.min(16, cov.pct * 0.16);
+  investScore += Math.min(10, institutionalRatio * 10);
+  investScore += Math.min(8, primaryRatio * 8);
+  investScore += categories.has("risk_scenarios") ? 8 : 0;
+  investScore += score.counts.negative > 0 ? 5 : 0;
+  investScore += categories.has("events_catalysts") ? 4 : 0;
+  investScore += categories.has("estimates") ? 4 : 0;
+  investScore += latestKpi ? 5 : 0;
+  investScore += latestKpi?.fcf_margin > 0 ? 3 : 0;
+  investScore += latestKpi?.operating_margin > 0 ? 3 : 0;
+  investScore += latestKpi?.revenue_growth > 0 ? 2 : 0;
+
+  let valuationPoints = 0;
+  if (valuation?.rows?.length && currentPrice) {
+    valuationPoints += 5;
+    if (expectedReturn >= 0.25) valuationPoints += 10;
+    else if (expectedReturn >= 0.15) valuationPoints += 7;
+    else if (expectedReturn >= 0.05) valuationPoints += 3;
+    if (bearReturn !== null) {
+      if (bearReturn > -0.15) valuationPoints += 6;
+      else if (bearReturn > -0.3) valuationPoints += 4;
+      else if (bearReturn > -0.45) valuationPoints += 1;
+    }
+    if (riskReward >= 1.5) valuationPoints += 5;
+    else if (riskReward >= 1) valuationPoints += 3;
+  }
+  investScore += Math.min(24, valuationPoints);
+  investScore -= missingInstitutional.length * 4;
+  if (primaryRatio < 0.4) investScore -= (0.4 - primaryRatio) * 20;
+  if (cov.pct < 85) investScore -= (85 - cov.pct) * 0.3;
+  investScore = Math.round(Math.max(0, Math.min(100, investScore)));
+
+  const blockers = [];
+  const warnings = [];
+  const nextActions = [];
+  if (errorCount) blockers.push("入力データにエラーがあります。");
+  if (!valuation?.rows?.length || !currentPrice) blockers.push("現在価格を含むバリュエーション・シナリオが未整備です。");
+  if (!categories.has("risk_scenarios")) blockers.push("反証条件・下方シナリオが未整備です。");
+  if (missingCore.length) warnings.push(`コアカテゴリ不足: ${missingCore.join("、")}`);
+  if (missingInstitutional.length) warnings.push(`機関投資家目線の重要カテゴリ不足: ${missingInstitutional.join("、")}`);
+  if (score.counts.negative === 0) warnings.push("弱材料・反証材料が不足しています。");
+  if (institutionalRatio < 0.6) warnings.push("一次情報・市場データ・コンセンサス等の比率が低い状態です。");
+  if (primaryRatio < 0.4) warnings.push("一次情報・取引所・規制当局データの比率が低く、検証可能性が不足しています。");
+  if (cov.pct < 85) warnings.push("情報カバレッジが85%未満です。投資候補化するには未充足カテゴリを埋めてください。");
+  if (expectedReturn !== null && expectedReturn < 0.1) warnings.push("期待リターンが低く、リスクに対する余地が薄い可能性があります。");
+  if (bearReturn !== null && bearReturn < -0.35) warnings.push("ベアケース下落余地が大きく、ポジションサイズ制約が必要です。");
+  if (riskReward !== null && riskReward < 1) warnings.push("期待リターンがベアケース損失を十分に上回っていません。");
+  if (cov.pct < 75) nextActions.push("不足カテゴリを埋め、情報カバレッジを75%以上に上げる。");
+  if (!categories.has("ownership_flows")) nextActions.push("保有・需給・空売り・指数イベントを確認する。");
+  if (!categories.has("governance_legal")) nextActions.push("ガバナンス、訴訟、規制、会計リスクを確認する。");
+  if (!categories.has("capital_allocation")) nextActions.push("自社株買い、配当、M&A、希薄化、ROIC/WACCを確認する。");
+  if (!nextActions.length) nextActions.push("主要反証条件を次回決算・イベントで再検証する。");
+
+  let readiness = "見送り寄り";
+  if (blockers.length) readiness = "調査未完了";
+  else if (investScore >= 78 && warnings.length === 0) readiness = "投資候補";
+  else if (investScore >= 68) readiness = "監視候補";
+  else if (investScore >= 50) readiness = "追加調査";
+
+  return { score: investScore, readiness, institutionalRatio, primaryRatio, expectedReturn, bearReturn, bullReturn, riskReward, blockers, warnings, nextActions };
+}
+
+function renderAuditStrip(score, cov, issues, investability) {
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
   const warningCount = issues.filter((issue) => issue.severity === "warning").length;
   auditStrip.innerHTML = `
+    <div class="audit-chip"><span>投資可能性</span><strong>${investability.score}</strong></div>
     <div class="audit-chip"><span>加重ポジティブ</span><strong>${score.weightedPositive.toFixed(2)}</strong></div>
     <div class="audit-chip"><span>加重ネガティブ</span><strong>${score.weightedNegative.toFixed(2)}</strong></div>
     <div class="audit-chip"><span>監査エラー</span><strong>${errorCount}</strong></div>
@@ -289,11 +383,12 @@ function renderSummary(data) {
   const label = [company.ticker, company.name].filter(Boolean).join(" / ") || "未設定";
   const neutralRows = grouped.neutral.concat(grouped.mixed, grouped.unknown);
   const valuation = calculateValuation(data.valuation);
+  const investability = evaluateInvestability(data, score, cov, issues, valuation);
 
   scoreBox.textContent = score.score;
   asOfLabel.textContent = `基準日: ${company.as_of || "-"}`;
   coverageLabel.textContent = `カバレッジ: ${cov.pct}%`;
-  renderAuditStrip(score, cov, issues);
+  renderAuditStrip(score, cov, issues, investability);
   renderCatalog(cov.covered);
 
   const issueHtml = issues.length
@@ -306,6 +401,28 @@ function renderSummary(data) {
         return `<li><strong>${escapeHtml(item?.name || id)}</strong>: ${escapeHtml((item?.metrics || []).join("、"))}</li>`;
       }).join("")
     : "<li>全カテゴリに少なくとも1件の証拠があります。次は数値の鮮度、一次資料比率、反証条件の精度を確認してください。</li>";
+
+  const investabilityHtml = `
+    <section class="summary-block">
+      <h3>投資可能性ゲート</h3>
+      <div class="metrics">
+        <div class="metric"><span>投資可能性</span><strong>${investability.score}/100</strong></div>
+        <div class="metric"><span>客観ゲート</span><strong>${escapeHtml(investability.readiness)}</strong></div>
+        <div class="metric"><span>期待/ベア損失</span><strong>${investability.riskReward === null ? "-" : `${investability.riskReward.toFixed(2)}x`}</strong></div>
+      </div>
+      <ul class="summary-list">
+        <li>一次・機関品質ソース比率: ${pct(investability.institutionalRatio)}</li>
+        <li>一次情報・取引所・規制当局ソース比率: ${pct(investability.primaryRatio)}</li>
+        <li>期待リターン: ${pct(investability.expectedReturn)} / ベアケース: ${pct(investability.bearReturn)} / ブルケース: ${pct(investability.bullReturn)}</li>
+      </ul>
+      <h3>ブロッカー</h3>
+      <ul class="summary-list">${(investability.blockers.length ? investability.blockers : ["重大なブロッカーは未検出です。"]).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      <h3>警告</h3>
+      <ul class="summary-list">${(investability.warnings.length ? investability.warnings : ["主要な警告は未検出です。"]).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      <h3>次の確認事項</h3>
+      <ul class="summary-list">${investability.nextActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </section>
+  `;
 
   const kpiHtml = data.financials?.kpis?.length
     ? `
@@ -367,6 +484,7 @@ function renderSummary(data) {
         <li>ポジティブ ${score.counts.positive}件 / ネガティブ ${score.counts.negative}件 / 中立・混在 ${score.counts.neutral + score.counts.mixed + score.counts.unknown}件</li>
       </ul>
     </section>
+    ${investabilityHtml}
     <section class="summary-block"><h3>データ品質監査</h3><ul class="summary-list">${issueHtml}</ul></section>
     <section class="summary-block"><h3>強材料</h3><ul class="summary-list">${renderBullets(grouped.positive, "明確な強材料は未入力です。", asOf)}</ul></section>
     <section class="summary-block"><h3>弱材料・反証条件</h3><ul class="summary-list">${renderBullets(grouped.negative, "明確な弱材料は未入力です。", asOf)}</ul></section>
@@ -392,6 +510,8 @@ function buildMarkdown(data) {
   const issues = validateData(data);
   const grouped = groupEvidence(evidence);
   const company = data.company || {};
+  const valuation = calculateValuation(data.valuation);
+  const investability = evaluateInvestability(data, score, cov, issues, valuation);
   const label = [company.ticker, company.name].filter(Boolean).join(" / ") || "未設定";
   const lines = [
     `# 投資判断用リサーチサマリ: ${label}`,
@@ -412,6 +532,26 @@ function buildMarkdown(data) {
     `- 調査スタンス: ${score.stance}`,
     `- 情報カバレッジ: ${cov.pct}%`,
     `- 加重ポジティブ: ${score.weightedPositive.toFixed(2)} / 加重ネガティブ: ${score.weightedNegative.toFixed(2)}`,
+    `- 投資可能性スコア: ${investability.score} / 100`,
+    `- 客観ゲート: ${investability.readiness}`,
+    "",
+    "## 投資可能性ゲート",
+    "",
+    `- 一次・機関品質ソース比率: ${pct(investability.institutionalRatio)}`,
+    `- 一次情報・取引所・規制当局ソース比率: ${pct(investability.primaryRatio)}`,
+    `- 期待リターン: ${pct(investability.expectedReturn)}`,
+    `- ベアケース下落率: ${pct(investability.bearReturn)}`,
+    `- ブルケース上昇率: ${pct(investability.bullReturn)}`,
+    `- 期待リターン/ベア損失: ${investability.riskReward === null ? "-" : `${investability.riskReward.toFixed(2)}x`}`,
+    "",
+    "ブロッカー:",
+    ...(investability.blockers.length ? investability.blockers : ["重大なブロッカーは未検出です。"]).map((item) => `- ${item}`),
+    "",
+    "警告:",
+    ...(investability.warnings.length ? investability.warnings : ["主要な警告は未検出です。"]).map((item) => `- ${item}`),
+    "",
+    "次の確認事項:",
+    ...investability.nextActions.map((item) => `- ${item}`),
     "",
     "## データ品質監査",
     ""

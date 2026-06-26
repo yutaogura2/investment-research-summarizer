@@ -521,6 +521,161 @@ def format_row_bullets(rows: list[dict[str, Any]], fallback: str, as_of_text: An
     return bullets
 
 
+def latest_financial_kpi(data: dict[str, Any]) -> dict[str, Any]:
+    kpis = data.get("financials", {}).get("kpis", [])
+    if not isinstance(kpis, list) or not kpis:
+        return {}
+    return sorted([row for row in kpis if isinstance(row, dict)], key=lambda row: row.get("fy", 0))[-1]
+
+
+def evaluate_investability(
+    data: dict[str, Any],
+    catalog: dict[str, Any],
+    issues: list[dict[str, str]],
+    evidence_score_result: dict[str, Any],
+    coverage: dict[str, Any],
+    valuation_result: dict[str, Any],
+) -> dict[str, Any]:
+    evidence = data.get("evidence", [])
+    if not isinstance(evidence, list):
+        evidence = []
+    categories = {normalize_id(row.get("category")) for row in evidence if isinstance(row, dict)}
+    source_types = [infer_source_type(row) for row in evidence if isinstance(row, dict)]
+    institutional_sources = {"primary_filing", "exchange", "regulator", "company_ir", "market_data", "consensus", "sell_side"}
+    institutional_ratio = 0.0 if not source_types else sum(1 for source in source_types if source in institutional_sources) / len(source_types)
+    primary_ratio = 0.0 if not source_types else sum(1 for source in source_types if source in {"primary_filing", "exchange", "regulator"}) / len(source_types)
+    issue_counts = validation_summary(issues)
+    core_categories = ["financials", "valuation", "estimates", "market", "events_catalysts", "risk_scenarios"]
+    missing_core = [category for category in core_categories if category not in categories]
+    institutional_required = ["ownership_flows", "capital_allocation", "governance_legal"]
+    missing_institutional = [category for category in institutional_required if category not in categories]
+
+    has_valuation = bool(valuation_result.get("scenarios"))
+    current_price = valuation_result.get("current_price") or 0
+    expected_return = valuation_result.get("expected_return")
+    scenario_prices = [row.get("price") for row in valuation_result.get("scenarios", []) if row.get("price") is not None]
+    bear_price = min(scenario_prices) if scenario_prices and current_price else None
+    bull_price = max(scenario_prices) if scenario_prices and current_price else None
+    bear_return = None if bear_price is None or not current_price else bear_price / current_price - 1
+    bull_return = None if bull_price is None or not current_price else bull_price / current_price - 1
+    risk_reward = None
+    if expected_return is not None and bear_return is not None and bear_return < 0:
+        risk_reward = expected_return / abs(bear_return)
+
+    latest_kpi = latest_financial_kpi(data)
+    fcf_margin = latest_kpi.get("fcf_margin")
+    operating_margin = latest_kpi.get("operating_margin")
+    revenue_growth = latest_kpi.get("revenue_growth")
+
+    score = 0.0
+    score += max(0, 18 - issue_counts["error"] * 8 - issue_counts["warning"] * 1.5)
+    score += min(16, coverage["coverage_pct"] * 0.16)
+    score += min(10, institutional_ratio * 10)
+    score += min(8, primary_ratio * 8)
+    score += 8 if "risk_scenarios" in categories else 0
+    score += 5 if evidence_score_result["counts"]["negative"] > 0 else 0
+    score += 4 if "events_catalysts" in categories else 0
+    score += 4 if "estimates" in categories else 0
+    score += 5 if latest_kpi else 0
+    score += 3 if fcf_margin is not None and fcf_margin > 0 else 0
+    score += 3 if operating_margin is not None and operating_margin > 0 else 0
+    score += 2 if revenue_growth is not None and revenue_growth > 0 else 0
+
+    valuation_points = 0.0
+    if has_valuation and current_price:
+        valuation_points += 5
+        if expected_return is not None:
+            if expected_return >= 0.25:
+                valuation_points += 10
+            elif expected_return >= 0.15:
+                valuation_points += 7
+            elif expected_return >= 0.05:
+                valuation_points += 3
+        if bear_return is not None:
+            if bear_return > -0.15:
+                valuation_points += 6
+            elif bear_return > -0.30:
+                valuation_points += 4
+            elif bear_return > -0.45:
+                valuation_points += 1
+        if risk_reward is not None:
+            if risk_reward >= 1.5:
+                valuation_points += 5
+            elif risk_reward >= 1.0:
+                valuation_points += 3
+    score += min(24, valuation_points)
+    score -= len(missing_institutional) * 4
+    if primary_ratio < 0.40:
+        score -= (0.40 - primary_ratio) * 20
+    if coverage["coverage_pct"] < 85:
+        score -= (85 - coverage["coverage_pct"]) * 0.30
+
+    blockers: list[str] = []
+    warnings: list[str] = []
+    next_actions: list[str] = []
+    if issue_counts["error"]:
+        blockers.append("入力データにエラーがあります。投資判断前に修正してください。")
+    if not has_valuation or not current_price:
+        blockers.append("現在価格を含むバリュエーション・シナリオが未整備です。")
+    if "risk_scenarios" not in categories:
+        blockers.append("反証条件・下方シナリオが未整備です。")
+    if missing_core:
+        warnings.append("コアカテゴリ不足: " + "、".join(missing_core))
+    if missing_institutional:
+        warnings.append("機関投資家目線の重要カテゴリ不足: " + "、".join(missing_institutional))
+    if evidence_score_result["counts"]["negative"] == 0:
+        warnings.append("弱材料・反証材料が不足しています。意図的な反対仮説の検証が必要です。")
+    if institutional_ratio < 0.6:
+        warnings.append("一次情報・市場データ・コンセンサス等の比率が低く、手入力依存が高い状態です。")
+    if primary_ratio < 0.4:
+        warnings.append("一次情報・取引所・規制当局データの比率が低く、検証可能性が不足しています。")
+    if coverage["coverage_pct"] < 85:
+        warnings.append("情報カバレッジが85%未満です。投資候補化するには未充足カテゴリを埋めてください。")
+    if expected_return is not None and expected_return < 0.10:
+        warnings.append("期待リターンが低く、リスクに対する余地が薄い可能性があります。")
+    if bear_return is not None and bear_return < -0.35:
+        warnings.append("ベアケース下落余地が大きく、ポジションサイズ制約が必要です。")
+    if risk_reward is not None and risk_reward < 1.0:
+        warnings.append("期待リターンがベアケース損失を十分に上回っていません。")
+    if coverage["coverage_pct"] < 75:
+        next_actions.append("不足カテゴリを埋め、情報カバレッジを75%以上に上げる。")
+    if "ownership_flows" not in categories:
+        next_actions.append("保有・需給・空売り・指数イベントを確認する。")
+    if "governance_legal" not in categories:
+        next_actions.append("ガバナンス、訴訟、規制、会計リスクを確認する。")
+    if "capital_allocation" not in categories:
+        next_actions.append("自社株買い、配当、M&A、希薄化、ROIC/WACCを確認する。")
+    if not next_actions:
+        next_actions.append("主要反証条件を次回決算・イベントで再検証する。")
+
+    normalized = int(round(max(0, min(100, score))))
+    if blockers:
+        readiness = "調査未完了"
+    elif normalized >= 78 and not warnings:
+        readiness = "投資候補"
+    elif normalized >= 68:
+        readiness = "監視候補"
+    elif normalized >= 50:
+        readiness = "追加調査"
+    else:
+        readiness = "見送り寄り"
+
+    return {
+        "score": normalized,
+        "readiness": readiness,
+        "institutional_source_ratio": institutional_ratio,
+        "primary_source_ratio": primary_ratio,
+        "expected_return": expected_return,
+        "bear_return": bear_return,
+        "bull_return": bull_return,
+        "risk_reward": risk_reward,
+        "missing_core": missing_core,
+        "blockers": blockers,
+        "warnings": warnings,
+        "next_actions": next_actions,
+    }
+
+
 def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog: bool) -> str:
     issues = validate_research_data(data, catalog)
     issue_counts = validation_summary(issues)
@@ -534,6 +689,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     coverage = coverage_report(evidence, catalog)
     buckets = split_evidence(evidence)
     valuation_result = calculate_valuation(data.get("valuation"))
+    investability = evaluate_investability(data, catalog, issues, score, coverage, valuation_result)
 
     ticker = md_escape(company.get("ticker", ""))
     name = md_escape(company.get("name", ""))
@@ -558,11 +714,29 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
         f"- 調査スタンス: {score['stance']}",
         f"- 情報カバレッジ: {coverage['coverage_pct']}% ({len(coverage['covered'])}/{len(catalog.get('categories', []))}カテゴリ)",
         f"- 加重ポジティブ: {score['weighted_positive']} / 加重ネガティブ: {score['weighted_negative']}",
+        f"- 投資可能性スコア: {investability['score']} / 100",
+        f"- 客観ゲート: {investability['readiness']}",
         f"- データ監査: error {issue_counts['error']}件 / warning {issue_counts['warning']}件",
         "",
-        "## 3. データ品質監査",
+        "## 3. 投資可能性ゲート",
         "",
+        f"- 一次・機関品質ソース比率: {safe_pct(investability['institutional_source_ratio'])}",
+        f"- 一次情報・取引所・規制当局ソース比率: {safe_pct(investability['primary_source_ratio'])}",
+        f"- 期待リターン: {safe_pct(investability['expected_return'])}",
+        f"- ベアケース下落率: {safe_pct(investability['bear_return'])}",
+        f"- ブルケース上昇率: {safe_pct(investability['bull_return'])}",
+        f"- 期待リターン/ベア損失: {investability['risk_reward']:.2f}x" if investability["risk_reward"] is not None else "- 期待リターン/ベア損失: -",
+        "",
+        "ブロッカー:",
     ]
+    lines.extend([f"- {item}" for item in investability["blockers"]] or ["- 重大なブロッカーは未検出です。"])
+    lines.extend(["", "警告:", *([f"- {item}" for item in investability["warnings"]] or ["- 主要な警告は未検出です。"])])
+    lines.extend(["", "次の確認事項:", *[f"- {item}" for item in investability["next_actions"]]])
+    lines.extend([
+        "",
+        "## 4. データ品質監査",
+        "",
+    ])
     if issues:
         for issue in issues[:12]:
             lines.append(f"- [{issue['severity']}] `{issue['path']}`: {issue['message']}")
@@ -571,15 +745,15 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     else:
         lines.append("- 入力検証で重大な問題は見つかりませんでした。")
 
-    lines.extend(["", "## 4. 強材料", ""])
+    lines.extend(["", "## 5. 強材料", ""])
     lines.extend(format_row_bullets(buckets["positive"], "明確な強材料は未入力です。", as_of))
-    lines.extend(["", "## 5. 弱材料・反証条件", ""])
+    lines.extend(["", "## 6. 弱材料・反証条件", ""])
     lines.extend(format_row_bullets(buckets["negative"], "明確な弱材料は未入力です。", as_of))
-    lines.extend(["", "## 6. 中立・確認待ち材料", ""])
+    lines.extend(["", "## 7. 中立・確認待ち材料", ""])
     neutral_rows = buckets["neutral"] + buckets["mixed"] + buckets["unknown"]
     lines.extend(format_row_bullets(neutral_rows, "中立・確認待ち材料は未入力です。", as_of))
 
-    lines.extend(["", "## 7. 未充足データと次の取得優先度", ""])
+    lines.extend(["", "## 8. 未充足データと次の取得優先度", ""])
     if coverage["missing"]:
         for category_id in coverage["missing"]:
             category = by_category[category_id]
@@ -590,7 +764,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
 
     financials = data.get("financials", {})
     if financials.get("kpis"):
-        lines.extend(["", "## 8. SEC財務KPI時系列", ""])
+        lines.extend(["", "## 9. SEC財務KPI時系列", ""])
         lines.append("|FY|売上|売上成長|営業利益率|FCF|FCFマージン|ROE|負債/資産|")
         lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
         for row in financials["kpis"]:
@@ -612,7 +786,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
             )
 
     if valuation_result.get("scenarios"):
-        lines.extend(["", "## 9. バリュエーション・シナリオ", ""])
+        lines.extend(["", "## 10. バリュエーション・シナリオ", ""])
         lines.append(f"- 期待株価: {valuation_result.get('currency', '')}{valuation_result.get('expected_price', 0):.2f}")
         if valuation_result.get("current_price"):
             lines.append(f"- 現在価格比の期待リターン: {safe_pct(valuation_result.get('expected_return'))}")
@@ -626,10 +800,10 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
                 f"{row['ev_ebitda']:.1f}x|{valuation_result.get('currency', '')}{row['price']:.2f}|"
             )
 
-    lines.extend(["", "## 10. エージェント実行計画", ""])
+    lines.extend(["", "## 11. エージェント実行計画", ""])
     lines.extend(format_agent_plan_markdown(load_agent_playbook(), compact=True).splitlines())
 
-    lines.extend(["", "## 11. エビデンス台帳", ""])
+    lines.extend(["", "## 12. エビデンス台帳", ""])
     lines.append("|カテゴリ|項目|値|解釈|出所|日付|確信度|重要度|出所種別|方向|")
     lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for row in evidence:

@@ -87,6 +87,8 @@ PythonがPATHにある環境では、`python tools/invest_research_tool.py ...` 
 - JSON入力の品質監査
 - 出所、日付、重要度、確信度、方向の検証
 - `source_quality × recency × materiality × confidence × direction` による加重スコア
+- 投資可能性ゲート: カバレッジ、一次情報比率、反証材料、期待リターン、ベアケース、リスク/リワードで客観評価
+- `投資候補` 判定には、重要カテゴリ不足、一次情報不足、カバレッジ不足などの警告がないことを要求
 - ブラウザ画面でのエビデンス追加フォーム
 
 ### Phase 2: SEC時系列取得とKPI自動計算
@@ -105,6 +107,7 @@ PythonがPATHにある環境では、`python tools/invest_research_tool.py ...` 
 
 - ブル、ベース、ベアの売上、EBITDA率、EV/EBITDA、確率から期待株価を計算
 - 現在価格比の期待リターンを表示
+- ベアケース下落率と期待リターン/ベア損失倍率を投資可能性ゲートへ反映
 
 ### Phase 5: エージェント構成
 
