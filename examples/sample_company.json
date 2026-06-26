@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "company": {
+    "ticker": "EXM",
+    "name": "Example Manufacturing Inc.",
+    "market": "US",
+    "sector": "Industrials",
+    "currency": "USD",
+    "as_of": "2026-06-26"
+  },
+  "thesis": "産業自動化向け部品の需要回復と価格改定により利益率が改善する、という仮説を検証する。",
+  "evidence": [
+    {
+      "category": "financials",
+      "item": "売上成長",
+      "value": "直近期売上は前年比 +8.2%",
+      "interpretation": "数量回復に加え、価格改定が寄与。M&A寄与は小さいためオーガニック成長として評価しやすい。",
+      "source": "FY2025 Form 10-K",
+      "source_url": "https://www.sec.gov/search-filings",
+      "date": "2026-02-15",
+      "confidence": "high",
+      "direction": "positive"
+    },
+    {
+      "category": "financials",
+      "item": "営業利益率",
+      "value": "営業利益率は 12.4% から 14.1% に改善",
+      "interpretation": "値上げと原材料価格の落ち着きが寄与。固定費削減は一部一過性の可能性がある。",
+      "source": "Company earnings release",
+      "source_url": "https://example.com/ir",
+      "date": "2026-02-15",
+      "confidence": "medium",
+      "direction": "positive"
+    },
+    {
+      "category": "valuation",
+      "item": "相対バリュエーション",
+      "value": "EV/EBITDA は同業中央値 11.0x に対して 8.7x",
+      "interpretation": "成長率が同業並みなら割安。ただし小型株ディスカウントと流動性の低さを考慮する必要がある。",
+      "source": "Manual peer model",
+      "source_url": "",
+      "date": "2026-06-20",
+      "confidence": "medium",
+      "direction": "positive"
+    },
+    {
+      "category": "estimates",
+      "item": "コンセンサス修正",
+      "value": "直近90日で来期EPS予想は -3.5%",
+      "interpretation": "短期的には受注回復の遅れが織り込まれ始めている。次回決算で受注残の確認が必要。",
+      "source": "Manual consensus snapshot",
+      "source_url": "",
+      "date": "2026-06-18",
+      "confidence": "medium",
+      "direction": "negative"
+    },
+    {
+      "category": "market",
+      "item": "流動性",
+      "value": "20日平均売買代金は約 18百万ドル",
+      "interpretation": "個人投資家には十分だが、大型ファンドではポジション構築に数日を要する可能性がある。",
+      "source": "Exchange price history",
+      "source_url": "",
+      "date": "2026-06-25",
+      "confidence": "medium",
+      "direction": "neutral"
+    },
+    {
+      "category": "macro_rates_fx",
+      "item": "原材料感応度",
+      "value": "銅価格 10% 上昇で営業利益率に約 -40bp の影響",
+      "interpretation": "価格転嫁に時間差があるため、銅価格上昇局面では短期マージンに逆風。",
+      "source": "Management sensitivity disclosure",
+      "source_url": "https://example.com/ir",
+      "date": "2026-03-10",
+      "confidence": "medium",
+      "direction": "negative"
+    },
+    {
+      "category": "sector_competition",
+      "item": "競争環境",
+      "value": "主要競合2社が設備投資を抑制",
+      "interpretation": "供給過剰リスクは低下しているが、需要回復が遅い場合は価格競争再燃の可能性がある。",
+      "source": "Competitor filings",
+      "source_url": "https://www.sec.gov/search-filings",
+      "date": "2026-05-30",
+      "confidence": "low",
+      "direction": "positive"
+    },
+    {
+      "category": "events_catalysts",
+      "item": "次回決算",
+      "value": "次回決算で受注残、価格改定の継続性、在庫水準を確認",
+      "interpretation": "投資仮説の短期検証点。受注残が横ばい以下ならベースシナリオを引き下げる。",
+      "source": "Internal research calendar",
+      "source_url": "",
+      "date": "2026-06-26",
+      "confidence": "high",
+      "direction": "neutral"
+    },
+    {
+      "category": "risk_scenarios",
+      "item": "反証条件",
+      "value": "受注残が2四半期連続で前年比マイナス、または営業利益率が13%未満に低下",
+      "interpretation": "需要回復と価格転嫁の仮説が崩れるため、ポジション縮小を検討する条件。",
+      "source": "Internal scenario model",
+      "source_url": "",
+      "date": "2026-06-26",
+      "confidence": "medium",
+      "direction": "negative"
+    }
+  ]
+}

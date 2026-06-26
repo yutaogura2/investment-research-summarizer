@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+.env
+.env.*
+*.log
+
+outputs/
+data/*_sec.json
+
+.DS_Store
+Thumbs.db

@@ -1,0 +1,468 @@
+{
+  "schema_version": "1.0",
+  "as_of": "2026-06-26",
+  "purpose": "機関投資家・証券会社の投資判断で使われる情報を、公開データと手入力データに分けて整理するためのカタログ。",
+  "decision_note": "このカタログは調査品質を上げるためのチェックリストであり、売買推奨そのものではない。",
+  "categories": [
+    {
+      "id": "financials",
+      "name": "財務諸表・開示資料",
+      "institutional_use": "企業価値の土台となる売上、利益、キャッシュフロー、資本効率、財務安全性を検証する。",
+      "key_questions": [
+        "売上成長は数量・価格・為替・M&Aのどれで説明できるか",
+        "利益率改善は一過性か構造的か",
+        "営業CFと利益の差異は健全か",
+        "借入・希薄化・オフバランスリスクはないか"
+      ],
+      "required_metrics": [
+        "売上高、営業利益、純利益、EPS",
+        "粗利率、営業利益率、ROE、ROIC",
+        "営業CF、FCF、運転資本、設備投資",
+        "ネットデット、自己資本比率、インタレストカバレッジ"
+      ],
+      "public_sources": [
+        {
+          "name": "SEC EDGAR APIs",
+          "region": "US",
+          "url": "https://www.sec.gov/search-filings/edgar-application-programming-interfaces"
+        },
+        {
+          "name": "EDINET",
+          "region": "JP",
+          "url": "https://disclosure2.edinet-fsa.go.jp/"
+        },
+        {
+          "name": "TDnet",
+          "region": "JP",
+          "url": "https://www.release.tdnet.info/"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "証券会社決算プレビュー・決算レビュー",
+        "Bloomberg / FactSet / Refinitiv の標準化財務データ"
+      ],
+      "summary_fields": [
+        "成長率",
+        "収益性",
+        "キャッシュ創出力",
+        "財務安全性",
+        "会計上の注意点"
+      ],
+      "quality_checks": [
+        "一次資料の期間と通貨を明記する",
+        "TTM、四半期、通期を混同しない",
+        "Non-GAAP 指標は会社定義を確認する"
+      ]
+    },
+    {
+      "id": "market",
+      "name": "株価・流動性・テクニカル需給",
+      "institutional_use": "投資可能性、ポジションサイズ、売買コスト、需給の歪みを判断する。",
+      "key_questions": [
+        "平均売買代金は想定ポジションに対して十分か",
+        "直近のリターンはファンダメンタルズと整合しているか",
+        "出来高急増やギャップはイベントで説明できるか"
+      ],
+      "required_metrics": [
+        "時価総額、浮動株時価総額",
+        "株価リターン、ボラティリティ、ベータ",
+        "平均売買代金、スプレッド、出来高",
+        "相対パフォーマンス"
+      ],
+      "public_sources": [
+        {
+          "name": "NASDAQ Data Link / 取引所公表データ",
+          "region": "Global",
+          "url": "https://data.nasdaq.com/"
+        },
+        {
+          "name": "JPX 統計情報",
+          "region": "JP",
+          "url": "https://www.jpx.co.jp/markets/statistics-equities/"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "Bloomberg B-PIPE / Refinitiv Real-Time",
+        "取引コスト分析データ"
+      ],
+      "summary_fields": [
+        "株価トレンド",
+        "流動性",
+        "需給イベント",
+        "取引しやすさ"
+      ],
+      "quality_checks": [
+        "株式分割・配当調整後データを使う",
+        "終値・VWAP・リアルタイム価格を区別する"
+      ]
+    },
+    {
+      "id": "valuation",
+      "name": "バリュエーション",
+      "institutional_use": "現在価格に織り込まれている成長・利益率・資本コストを推定し、上振れ余地と下振れリスクを比較する。",
+      "key_questions": [
+        "PER、EV/EBITDA、PBR は過去・同業比で割安か",
+        "DCF の主要前提は保守的か",
+        "市場はどの程度の成長とマージンを織り込んでいるか"
+      ],
+      "required_metrics": [
+        "PER、EV/EBITDA、EV/Sales、PBR",
+        "FCF利回り、配当利回り、自社株買い利回り",
+        "WACC、長期成長率、ターミナルバリュー",
+        "同業比較と過去レンジ"
+      ],
+      "public_sources": [
+        {
+          "name": "企業開示・取引所データから手計算",
+          "region": "Global",
+          "url": "https://www.sec.gov/search-filings"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "Bloomberg / FactSet / Refinitiv のコンセンサス倍率",
+        "証券会社のDCF・SOTPモデル"
+      ],
+      "summary_fields": [
+        "絶対評価",
+        "相対評価",
+        "市場期待",
+        "感応度"
+      ],
+      "quality_checks": [
+        "ネットキャッシュ・リース負債・少数株主持分を調整する",
+        "循環株はピーク利益を基準にしない"
+      ]
+    },
+    {
+      "id": "estimates",
+      "name": "業績予想・コンセンサス・アナリスト論点",
+      "institutional_use": "市場期待の水準、上方修正・下方修正の余地、決算サプライズの発生確率を把握する。",
+      "key_questions": [
+        "会社計画と市場予想の差はどこにあるか",
+        "上方修正・下方修正のドライバーは何か",
+        "アナリストの主要論点は一致しているか分散しているか"
+      ],
+      "required_metrics": [
+        "売上・営業利益・EPS のコンセンサス",
+        "会社計画との差分",
+        "予想修正の方向と幅",
+        "目標株価レンジ、レーティング分布"
+      ],
+      "public_sources": [
+        {
+          "name": "会社予想・決算説明資料",
+          "region": "Global",
+          "url": "https://www.sec.gov/search-filings"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "証券会社レポート",
+        "Visible Alpha / Bloomberg / FactSet / Refinitiv コンセンサス"
+      ],
+      "summary_fields": [
+        "市場期待",
+        "修正方向",
+        "決算サプライズ余地",
+        "アナリストの争点"
+      ],
+      "quality_checks": [
+        "予想の基準日を記録する",
+        "会社計画、IBES/FactSet、独自予想を混ぜない"
+      ]
+    },
+    {
+      "id": "ownership_flows",
+      "name": "保有・資金フロー・ポジショニング",
+      "institutional_use": "誰が買っているか、混雑しているか、売り圧力・買い圧力が残っているかを評価する。",
+      "key_questions": [
+        "主要株主に変化はあるか",
+        "機関投資家保有比率は上昇・低下しているか",
+        "ETF・指数イベントによる機械的売買はあるか"
+      ],
+      "required_metrics": [
+        "主要株主、13F、5%ルール、大量保有",
+        "ETF保有、インデックス採用・除外",
+        "ファンドフロー、信用買残、空売り残高",
+        "インサイダー売買"
+      ],
+      "public_sources": [
+        {
+          "name": "SEC 13F Filings",
+          "region": "US",
+          "url": "https://www.sec.gov/search-filings"
+        },
+        {
+          "name": "FINRA Market Data",
+          "region": "US",
+          "url": "https://www.finra.org/finra-data"
+        },
+        {
+          "name": "JPX 空売り集計",
+          "region": "JP",
+          "url": "https://www.jpx.co.jp/markets/statistics-equities/short-selling/"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "Prime broker positioning",
+        "Bloomberg ownership / FactSet ownership"
+      ],
+      "summary_fields": [
+        "株主変化",
+        "需給混雑度",
+        "指数・ETF影響",
+        "インサイダー動向"
+      ],
+      "quality_checks": [
+        "13F は最大45日遅れである点を明記する",
+        "空売り比率と空売り残高を区別する"
+      ]
+    },
+    {
+      "id": "macro_rates_fx",
+      "name": "マクロ・金利・為替・コモディティ",
+      "institutional_use": "業績・バリュエーション・資金フローに影響する外部環境を把握する。",
+      "key_questions": [
+        "金利上昇・低下が倍率や資金調達に与える影響は何か",
+        "為替感応度は会社開示と一致しているか",
+        "原材料価格や景気指標は業績予想に反映済みか"
+      ],
+      "required_metrics": [
+        "政策金利、国債利回り、信用スプレッド",
+        "為替レート、為替感応度",
+        "PMI、雇用、消費、鉱工業生産",
+        "原油、天然ガス、金属、農産物価格"
+      ],
+      "public_sources": [
+        {
+          "name": "FRED",
+          "region": "US",
+          "url": "https://fred.stlouisfed.org/docs/api/fred/"
+        },
+        {
+          "name": "Bank of Japan Statistics",
+          "region": "JP",
+          "url": "https://www.boj.or.jp/statistics/"
+        },
+        {
+          "name": "CFTC Commitments of Traders",
+          "region": "US",
+          "url": "https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "Bloomberg Economics / sell-side macro research",
+        "業界別価格データベンダー"
+      ],
+      "summary_fields": [
+        "マクロ追い風・逆風",
+        "金利感応度",
+        "為替感応度",
+        "商品市況感応度"
+      ],
+      "quality_checks": [
+        "名目値・実質値・季節調整の違いを確認する",
+        "企業の地域別売上と通貨エクスポージャーを対応させる"
+      ]
+    },
+    {
+      "id": "sector_competition",
+      "name": "業界・競争環境・サプライチェーン",
+      "institutional_use": "個社要因と業界サイクルを分離し、持続的な競争優位を評価する。",
+      "key_questions": [
+        "市場成長率と自社成長率の差はシェア変化で説明できるか",
+        "価格決定力はあるか",
+        "競合の投資・在庫・値下げは脅威か"
+      ],
+      "required_metrics": [
+        "TAM、SAM、市場成長率、シェア",
+        "競合売上成長・マージン",
+        "価格、在庫、リードタイム、稼働率",
+        "顧客集中度、供給元集中度"
+      ],
+      "public_sources": [
+        {
+          "name": "企業決算資料・業界団体統計",
+          "region": "Global",
+          "url": "https://www.sec.gov/search-filings"
+        },
+        {
+          "name": "METI 統計",
+          "region": "JP",
+          "url": "https://www.meti.go.jp/statistics/"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "Gartner / IDC / Counterpoint / Omdia 等の業界調査",
+        "チャネルチェック、サプライチェーン調査"
+      ],
+      "summary_fields": [
+        "業界サイクル",
+        "競争優位",
+        "シェア変化",
+        "サプライチェーンリスク"
+      ],
+      "quality_checks": [
+        "企業のセグメント定義と業界統計の定義を合わせる",
+        "単月データをトレンドとして過大評価しない"
+      ]
+    },
+    {
+      "id": "capital_allocation",
+      "name": "資本政策・株主還元・M&A",
+      "institutional_use": "経営陣が資本を高リターンで配分しているかを判断する。",
+      "key_questions": [
+        "成長投資、M&A、自社株買い、配当の優先順位は合理的か",
+        "買収価格とシナジーは妥当か",
+        "希薄化や過剰債務のリスクはないか"
+      ],
+      "required_metrics": [
+        "ROIC と WACC",
+        "配当性向、自社株買い、総還元性向",
+        "M&A 価格、取得倍率、PMI進捗",
+        "新株発行、転換証券、ストック報酬"
+      ],
+      "public_sources": [
+        {
+          "name": "企業開示・委任状・有価証券報告書",
+          "region": "Global",
+          "url": "https://www.sec.gov/search-filings"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "M&A データベース",
+        "証券会社イベントレビュー"
+      ],
+      "summary_fields": [
+        "資本効率",
+        "還元方針",
+        "M&Aリスク",
+        "希薄化リスク"
+      ],
+      "quality_checks": [
+        "一時的な還元と継続的な還元を分ける",
+        "買収ののれん・減損リスクを確認する"
+      ]
+    },
+    {
+      "id": "governance_legal",
+      "name": "ガバナンス・法務・規制",
+      "institutional_use": "少数株主保護、経営の質、重大な法務・規制リスクを評価する。",
+      "key_questions": [
+        "取締役会の独立性と報酬設計は適切か",
+        "訴訟・調査・制裁・規制変更のリスクはあるか",
+        "関連当事者取引や支配株主リスクはないか"
+      ],
+      "required_metrics": [
+        "取締役構成、独立社外比率",
+        "役員報酬KPI",
+        "訴訟・規制開示",
+        "監査意見、内部統制、会計方針変更"
+      ],
+      "public_sources": [
+        {
+          "name": "SEC Proxy Statements / 10-K Risk Factors",
+          "region": "US",
+          "url": "https://www.sec.gov/search-filings"
+        },
+        {
+          "name": "東証 コーポレート・ガバナンス情報",
+          "region": "JP",
+          "url": "https://www.jpx.co.jp/listing/cg-search/"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "ISS / Glass Lewis",
+        "法律事務所・規制専門家レポート"
+      ],
+      "summary_fields": [
+        "経営品質",
+        "株主保護",
+        "法務・規制リスク",
+        "会計リスク"
+      ],
+      "quality_checks": [
+        "リスク要因の新規追加・文言変化を確認する",
+        "監査法人変更や内部統制不備を重視する"
+      ]
+    },
+    {
+      "id": "events_catalysts",
+      "name": "イベント・カタリスト",
+      "institutional_use": "株価が動く時期と要因を整理し、リスク・リワードの時間軸を決める。",
+      "key_questions": [
+        "次の決算、投資家説明会、製品発表、規制判断はいつか",
+        "市場が見落としている確認ポイントは何か",
+        "悪材料が出るならどのイベントか"
+      ],
+      "required_metrics": [
+        "決算日、権利日、説明会日程",
+        "製品・承認・訴訟・規制イベント",
+        "指数入替、ロックアップ解除",
+        "短期・中期・長期のカタリスト"
+      ],
+      "public_sources": [
+        {
+          "name": "企業IRカレンダー",
+          "region": "Global",
+          "url": "https://www.sec.gov/search-filings"
+        },
+        {
+          "name": "取引所開示・会社適時開示",
+          "region": "JP",
+          "url": "https://www.release.tdnet.info/"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "証券会社イベントカレンダー",
+        "専門ニュース端末"
+      ],
+      "summary_fields": [
+        "短期カタリスト",
+        "確認すべきKPI",
+        "イベントリスク",
+        "想定シナリオ"
+      ],
+      "quality_checks": [
+        "イベント日程の更新日を記録する",
+        "噂と確認済み事実を分ける"
+      ]
+    },
+    {
+      "id": "risk_scenarios",
+      "name": "リスク・シナリオ・ポートフォリオ影響",
+      "institutional_use": "ベース、ブル、ベアの期待値と損失許容度を明確にする。",
+      "key_questions": [
+        "何が間違っていたら投資仮説は崩れるか",
+        "下方シナリオの株価・財務影響はどの程度か",
+        "既存ポートフォリオとの相関・集中リスクは許容できるか"
+      ],
+      "required_metrics": [
+        "ブル・ベース・ベアの売上、利益、倍率",
+        "期待値、最大損失、損切り条件",
+        "相関、ファクターエクスポージャー",
+        "流動性ストレス、ギャップリスク"
+      ],
+      "public_sources": [
+        {
+          "name": "企業開示・市場データ・マクロデータ",
+          "region": "Global",
+          "url": "https://www.sec.gov/search-filings"
+        }
+      ],
+      "paid_or_manual_sources": [
+        "リスクモデル、ファクターモデル",
+        "内部ポートフォリオ管理システム"
+      ],
+      "summary_fields": [
+        "投資仮説",
+        "反証条件",
+        "損失シナリオ",
+        "ポジション管理"
+      ],
+      "quality_checks": [
+        "期待リターンだけでなく下方損失を明示する",
+        "流動性が悪い銘柄は売却日数を試算する"
+      ]
+    }
+  ]
+}
