@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "company": {
     "ticker": "EXM",
     "name": "Example Manufacturing Inc.",
@@ -19,7 +19,9 @@
       "source_url": "https://www.sec.gov/search-filings",
       "date": "2026-02-15",
       "confidence": "high",
-      "direction": "positive"
+      "direction": "positive",
+      "materiality": "high",
+      "source_type": "primary_filing"
     },
     {
       "category": "financials",
@@ -30,7 +32,9 @@
       "source_url": "https://example.com/ir",
       "date": "2026-02-15",
       "confidence": "medium",
-      "direction": "positive"
+      "direction": "positive",
+      "materiality": "high",
+      "source_type": "company_ir"
     },
     {
       "category": "valuation",
@@ -41,7 +45,9 @@
       "source_url": "",
       "date": "2026-06-20",
       "confidence": "medium",
-      "direction": "positive"
+      "direction": "positive",
+      "materiality": "high",
+      "source_type": "manual_model"
     },
     {
       "category": "estimates",
@@ -52,7 +58,9 @@
       "source_url": "",
       "date": "2026-06-18",
       "confidence": "medium",
-      "direction": "negative"
+      "direction": "negative",
+      "materiality": "high",
+      "source_type": "consensus"
     },
     {
       "category": "market",
@@ -63,7 +71,9 @@
       "source_url": "",
       "date": "2026-06-25",
       "confidence": "medium",
-      "direction": "neutral"
+      "direction": "neutral",
+      "materiality": "medium",
+      "source_type": "market_data"
     },
     {
       "category": "macro_rates_fx",
@@ -74,7 +84,9 @@
       "source_url": "https://example.com/ir",
       "date": "2026-03-10",
       "confidence": "medium",
-      "direction": "negative"
+      "direction": "negative",
+      "materiality": "medium",
+      "source_type": "company_ir"
     },
     {
       "category": "sector_competition",
@@ -85,7 +97,9 @@
       "source_url": "https://www.sec.gov/search-filings",
       "date": "2026-05-30",
       "confidence": "low",
-      "direction": "positive"
+      "direction": "positive",
+      "materiality": "medium",
+      "source_type": "primary_filing"
     },
     {
       "category": "events_catalysts",
@@ -96,7 +110,9 @@
       "source_url": "",
       "date": "2026-06-26",
       "confidence": "high",
-      "direction": "neutral"
+      "direction": "neutral",
+      "materiality": "medium",
+      "source_type": "internal"
     },
     {
       "category": "risk_scenarios",
@@ -107,7 +123,93 @@
       "source_url": "",
       "date": "2026-06-26",
       "confidence": "medium",
-      "direction": "negative"
+      "direction": "negative",
+      "materiality": "high",
+      "source_type": "internal"
     }
-  ]
+  ],
+  "financials": {
+    "kpis": [
+      {
+        "fy": 2023,
+        "revenue": 1120000000,
+        "operating_income": 139000000,
+        "net_income": 91000000,
+        "operating_cf": 126000000,
+        "capex": 42000000,
+        "assets": 1440000000,
+        "liabilities": 610000000,
+        "equity": 830000000,
+        "revenue_growth": null,
+        "operating_margin": 0.124,
+        "fcf": 84000000,
+        "fcf_margin": 0.075,
+        "roe": 0.11,
+        "liability_ratio": 0.424
+      },
+      {
+        "fy": 2024,
+        "revenue": 1198000000,
+        "operating_income": 156000000,
+        "net_income": 101000000,
+        "operating_cf": 141000000,
+        "capex": 46000000,
+        "assets": 1510000000,
+        "liabilities": 635000000,
+        "equity": 875000000,
+        "revenue_growth": 0.0696,
+        "operating_margin": 0.130,
+        "fcf": 95000000,
+        "fcf_margin": 0.079,
+        "roe": 0.115,
+        "liability_ratio": 0.421
+      },
+      {
+        "fy": 2025,
+        "revenue": 1296000000,
+        "operating_income": 183000000,
+        "net_income": 121000000,
+        "operating_cf": 166000000,
+        "capex": 52000000,
+        "assets": 1580000000,
+        "liabilities": 650000000,
+        "equity": 930000000,
+        "revenue_growth": 0.0818,
+        "operating_margin": 0.141,
+        "fcf": 114000000,
+        "fcf_margin": 0.088,
+        "roe": 0.130,
+        "liability_ratio": 0.411
+      }
+    ]
+  },
+  "valuation": {
+    "currency": "USD",
+    "shares_outstanding": 50000000,
+    "net_debt": 220000000,
+    "current_price": 22.5,
+    "scenarios": [
+      {
+        "name": "Bear",
+        "probability": 0.25,
+        "revenue": 1240000000,
+        "ebitda_margin": 0.15,
+        "ev_ebitda": 7.0
+      },
+      {
+        "name": "Base",
+        "probability": 0.50,
+        "revenue": 1380000000,
+        "ebitda_margin": 0.18,
+        "ev_ebitda": 8.7
+      },
+      {
+        "name": "Bull",
+        "probability": 0.25,
+        "revenue": 1490000000,
+        "ebitda_margin": 0.20,
+        "ev_ebitda": 10.5
+      }
+    ]
+  }
 }

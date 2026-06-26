@@ -28,6 +28,83 @@
             <button type="button" id="summarizeButton" class="primary">Summary</button>
           </div>
         </div>
+        <form id="evidenceForm" class="evidence-form">
+          <div class="form-grid">
+            <label>
+              カテゴリ
+              <select id="fieldCategory"></select>
+            </label>
+            <label>
+              項目
+              <input id="fieldItem" type="text" placeholder="例: 売上成長" />
+            </label>
+            <label>
+              値
+              <input id="fieldValue" type="text" placeholder="例: FY2025 +8.2%" />
+            </label>
+            <label>
+              日付
+              <input id="fieldDate" type="date" />
+            </label>
+            <label>
+              確信度
+              <select id="fieldConfidence">
+                <option value="high">high</option>
+                <option value="medium" selected>medium</option>
+                <option value="low">low</option>
+              </select>
+            </label>
+            <label>
+              重要度
+              <select id="fieldMateriality">
+                <option value="high">high</option>
+                <option value="medium" selected>medium</option>
+                <option value="low">low</option>
+              </select>
+            </label>
+            <label>
+              方向
+              <select id="fieldDirection">
+                <option value="positive">positive</option>
+                <option value="neutral" selected>neutral</option>
+                <option value="negative">negative</option>
+                <option value="mixed">mixed</option>
+                <option value="unknown">unknown</option>
+              </select>
+            </label>
+            <label>
+              出所種別
+              <select id="fieldSourceType">
+                <option value="primary_filing">primary_filing</option>
+                <option value="exchange">exchange</option>
+                <option value="regulator">regulator</option>
+                <option value="company_ir">company_ir</option>
+                <option value="market_data">market_data</option>
+                <option value="consensus">consensus</option>
+                <option value="sell_side">sell_side</option>
+                <option value="manual_model">manual_model</option>
+                <option value="internal" selected>internal</option>
+                <option value="unknown">unknown</option>
+              </select>
+            </label>
+            <label>
+              出所
+              <input id="fieldSource" type="text" placeholder="例: FY2025 Form 10-K" />
+            </label>
+            <label>
+              URL
+              <input id="fieldSourceUrl" type="url" placeholder="https://..." />
+            </label>
+          </div>
+          <label class="wide-field">
+            解釈
+            <textarea id="fieldInterpretation" rows="3" placeholder="投資判断上の意味、確認すべき反証条件など"></textarea>
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="primary">エビデンス追加</button>
+            <button type="button" id="clearFormButton">Clear</button>
+          </div>
+        </form>
         <textarea id="jsonInput" spellcheck="false" aria-label="会社別エビデンスJSON"></textarea>
         <div class="file-row">
           <label class="file-control">
@@ -45,6 +122,7 @@
           <h2 id="summary-title">調査サマリ</h2>
           <div class="score" id="scoreBox">0</div>
         </div>
+        <div id="auditStrip" class="audit-strip"></div>
         <div id="summaryOutput" class="summary-output"></div>
       </section>
     </main>
