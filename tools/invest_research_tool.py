@@ -676,6 +676,45 @@ def evaluate_investability(
     }
 
 
+def decision_brief(investability: dict[str, Any]) -> dict[str, str]:
+    blockers = investability.get("blockers", [])
+    warnings = investability.get("warnings", [])
+    readiness = investability.get("readiness", "")
+    next_actions = investability.get("next_actions", [])
+    next_action = next_actions[0] if next_actions else "主要反証条件を次回決算・イベントで再検証する。"
+
+    handling = "追加調査"
+    human_decision = "不足している判断材料を埋めるか、いったん見送るかを決める。"
+    if blockers:
+        handling = "調査未完了"
+        human_decision = "ブロッカーを解消するまで投資候補として扱わない。"
+    elif readiness == "投資候補":
+        handling = "投資候補として人間レビューへ"
+        human_decision = "ポジションサイズ、許容損失、注文条件を人間が最終判断する。"
+    elif readiness == "監視候補":
+        handling = "監視候補"
+        human_decision = "ウォッチリストに残し、未充足カテゴリを埋めて再判定する。"
+    elif readiness == "見送り寄り":
+        handling = "見送り寄り"
+        human_decision = "投資仮説を再設計するか、調査対象から外すかを決める。"
+
+    reason = (blockers or warnings or ["警告なし。残る論点はポートフォリオ制約と売買条件です。"])[0]
+    if blockers:
+        completion_criteria = "ブロッカー0件、現在価格を含むシナリオ、反証条件を揃える。"
+    elif warnings:
+        completion_criteria = "重要カテゴリ不足、一次情報比率、カバレッジ警告を解消する。"
+    else:
+        completion_criteria = "人間がリスク許容度、資金配分、執行条件を確認する。"
+
+    return {
+        "handling": handling,
+        "human_decision": human_decision,
+        "reason": reason,
+        "next_action": next_action,
+        "completion_criteria": completion_criteria,
+    }
+
+
 def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog: bool) -> str:
     issues = validate_research_data(data, catalog)
     issue_counts = validation_summary(issues)
@@ -690,6 +729,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     buckets = split_evidence(evidence)
     valuation_result = calculate_valuation(data.get("valuation"))
     investability = evaluate_investability(data, catalog, issues, score, coverage, valuation_result)
+    brief = decision_brief(investability)
 
     ticker = md_escape(company.get("ticker", ""))
     name = md_escape(company.get("name", ""))
@@ -708,7 +748,15 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
         f"- データ基準日: {md_escape(as_of)}",
         f"- 投資仮説: {md_escape(data.get('thesis', '')) or '未入力'}",
         "",
-        "## 2. 結論サマリ",
+        "## 2. 判断ブリーフ",
+        "",
+        f"- 現在の扱い: {md_escape(brief['handling'])}",
+        f"- 今日の人間判断: {md_escape(brief['human_decision'])}",
+        f"- 理由: {md_escape(brief['reason'])}",
+        f"- 次の一手: {md_escape(brief['next_action'])}",
+        f"- 完了条件: {md_escape(brief['completion_criteria'])}",
+        "",
+        "## 3. 結論サマリ",
         "",
         f"- 証拠スコア: {score['score']} / 100",
         f"- 調査スタンス: {score['stance']}",
@@ -718,7 +766,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
         f"- 客観ゲート: {investability['readiness']}",
         f"- データ監査: error {issue_counts['error']}件 / warning {issue_counts['warning']}件",
         "",
-        "## 3. 投資可能性ゲート",
+        "## 4. 投資可能性ゲート",
         "",
         f"- 一次・機関品質ソース比率: {safe_pct(investability['institutional_source_ratio'])}",
         f"- 一次情報・取引所・規制当局ソース比率: {safe_pct(investability['primary_source_ratio'])}",
@@ -734,7 +782,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     lines.extend(["", "次の確認事項:", *[f"- {item}" for item in investability["next_actions"]]])
     lines.extend([
         "",
-        "## 4. データ品質監査",
+        "## 5. データ品質監査",
         "",
     ])
     if issues:
@@ -745,15 +793,15 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     else:
         lines.append("- 入力検証で重大な問題は見つかりませんでした。")
 
-    lines.extend(["", "## 5. 強材料", ""])
+    lines.extend(["", "## 6. 強材料", ""])
     lines.extend(format_row_bullets(buckets["positive"], "明確な強材料は未入力です。", as_of))
-    lines.extend(["", "## 6. 弱材料・反証条件", ""])
+    lines.extend(["", "## 7. 弱材料・反証条件", ""])
     lines.extend(format_row_bullets(buckets["negative"], "明確な弱材料は未入力です。", as_of))
-    lines.extend(["", "## 7. 中立・確認待ち材料", ""])
+    lines.extend(["", "## 8. 中立・確認待ち材料", ""])
     neutral_rows = buckets["neutral"] + buckets["mixed"] + buckets["unknown"]
     lines.extend(format_row_bullets(neutral_rows, "中立・確認待ち材料は未入力です。", as_of))
 
-    lines.extend(["", "## 8. 未充足データと次の取得優先度", ""])
+    lines.extend(["", "## 9. 未充足データと次の取得優先度", ""])
     if coverage["missing"]:
         for category_id in coverage["missing"]:
             category = by_category[category_id]
@@ -764,7 +812,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
 
     financials = data.get("financials", {})
     if financials.get("kpis"):
-        lines.extend(["", "## 9. SEC財務KPI時系列", ""])
+        lines.extend(["", "## 10. SEC財務KPI時系列", ""])
         lines.append("|FY|売上|売上成長|営業利益率|FCF|FCFマージン|ROE|負債/資産|")
         lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
         for row in financials["kpis"]:
@@ -786,7 +834,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
             )
 
     if valuation_result.get("scenarios"):
-        lines.extend(["", "## 10. バリュエーション・シナリオ", ""])
+        lines.extend(["", "## 11. バリュエーション・シナリオ", ""])
         lines.append(f"- 期待株価: {valuation_result.get('currency', '')}{valuation_result.get('expected_price', 0):.2f}")
         if valuation_result.get("current_price"):
             lines.append(f"- 現在価格比の期待リターン: {safe_pct(valuation_result.get('expected_return'))}")
@@ -800,10 +848,10 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
                 f"{row['ev_ebitda']:.1f}x|{valuation_result.get('currency', '')}{row['price']:.2f}|"
             )
 
-    lines.extend(["", "## 11. エージェント実行計画", ""])
+    lines.extend(["", "## 12. エージェント実行計画", ""])
     lines.extend(format_agent_plan_markdown(load_agent_playbook(), compact=True).splitlines())
 
-    lines.extend(["", "## 12. エビデンス台帳", ""])
+    lines.extend(["", "## 13. エビデンス台帳", ""])
     lines.append("|カテゴリ|項目|値|解釈|出所|日付|確信度|重要度|出所種別|方向|")
     lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for row in evidence:

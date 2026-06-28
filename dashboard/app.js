@@ -360,13 +360,49 @@ function evaluateInvestability(data, score, cov, issues, valuation) {
   return { score: investScore, readiness, institutionalRatio, primaryRatio, expectedReturn, bearReturn, bullReturn, riskReward, blockers, warnings, nextActions };
 }
 
+function decisionBrief(investability) {
+  const blockers = investability.blockers || [];
+  const warnings = investability.warnings || [];
+  const nextAction = investability.nextActions?.[0] || "主要反証条件を次回決算・イベントで再検証する。";
+  let statusClass = "neutral";
+  let handling = "追加調査";
+  let humanDecision = "不足している判断材料を埋めるか、いったん見送るかを決める。";
+
+  if (blockers.length) {
+    statusClass = "negative";
+    handling = "調査未完了";
+    humanDecision = "ブロッカーを解消するまで投資候補として扱わない。";
+  } else if (investability.readiness === "投資候補") {
+    statusClass = "positive";
+    handling = "投資候補として人間レビューへ";
+    humanDecision = "ポジションサイズ、許容損失、注文条件を人間が最終判断する。";
+  } else if (investability.readiness === "監視候補") {
+    statusClass = "warn";
+    handling = "監視候補";
+    humanDecision = "ウォッチリストに残し、未充足カテゴリを埋めて再判定する。";
+  } else if (investability.readiness === "見送り寄り") {
+    statusClass = "negative";
+    handling = "見送り寄り";
+    humanDecision = "投資仮説を再設計するか、調査対象から外すかを決める。";
+  }
+
+  const reason = blockers[0] || warnings[0] || "警告なし。残る論点はポートフォリオ制約と売買条件です。";
+  const completionCriteria = blockers.length
+    ? "ブロッカー0件、現在価格を含むシナリオ、反証条件を揃える。"
+    : warnings.length
+      ? "重要カテゴリ不足、一次情報比率、カバレッジ警告を解消する。"
+      : "人間がリスク許容度、資金配分、執行条件を確認する。";
+
+  return { statusClass, handling, humanDecision, reason, nextAction, completionCriteria };
+}
+
 function renderAuditStrip(score, cov, issues, investability) {
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
   const warningCount = issues.filter((issue) => issue.severity === "warning").length;
   auditStrip.innerHTML = `
+    <div class="audit-chip"><span>客観ゲート</span><strong>${escapeHtml(investability.readiness)}</strong></div>
     <div class="audit-chip"><span>投資可能性</span><strong>${investability.score}</strong></div>
-    <div class="audit-chip"><span>加重ポジティブ</span><strong>${score.weightedPositive.toFixed(2)}</strong></div>
-    <div class="audit-chip"><span>加重ネガティブ</span><strong>${score.weightedNegative.toFixed(2)}</strong></div>
+    <div class="audit-chip"><span>カバレッジ</span><strong>${cov.pct}%</strong></div>
     <div class="audit-chip"><span>監査エラー</span><strong>${errorCount}</strong></div>
     <div class="audit-chip"><span>監査警告</span><strong>${warningCount}</strong></div>
   `;
@@ -384,6 +420,7 @@ function renderSummary(data) {
   const neutralRows = grouped.neutral.concat(grouped.mixed, grouped.unknown);
   const valuation = calculateValuation(data.valuation);
   const investability = evaluateInvestability(data, score, cov, issues, valuation);
+  const brief = decisionBrief(investability);
 
   scoreBox.textContent = score.score;
   asOfLabel.textContent = `基準日: ${company.as_of || "-"}`;
@@ -470,6 +507,31 @@ function renderSummary(data) {
   }).join("");
 
   summaryOutput.innerHTML = `
+    <section class="decision-brief ${brief.statusClass}">
+      <div class="decision-head">
+        <span class="decision-label">判断ブリーフ</span>
+        <strong>${escapeHtml(brief.handling)}</strong>
+        <span class="decision-score">投資可能性 ${investability.score}/100</span>
+      </div>
+      <div class="brief-grid">
+        <div>
+          <span>今日の人間判断</span>
+          <p>${escapeHtml(brief.humanDecision)}</p>
+        </div>
+        <div>
+          <span>理由</span>
+          <p>${escapeHtml(brief.reason)}</p>
+        </div>
+        <div>
+          <span>次の一手</span>
+          <p>${escapeHtml(brief.nextAction)}</p>
+        </div>
+        <div>
+          <span>完了条件</span>
+          <p>${escapeHtml(brief.completionCriteria)}</p>
+        </div>
+      </div>
+    </section>
     <p class="notice">この出力は投資調査メモであり、売買推奨ではありません。一次情報、価格、リスク許容度を別途確認してください。</p>
     <div class="metrics">
       <div class="metric"><span>対象</span><strong>${escapeHtml(label)}</strong></div>
@@ -512,6 +574,7 @@ function buildMarkdown(data) {
   const company = data.company || {};
   const valuation = calculateValuation(data.valuation);
   const investability = evaluateInvestability(data, score, cov, issues, valuation);
+  const brief = decisionBrief(investability);
   const label = [company.ticker, company.name].filter(Boolean).join(" / ") || "未設定";
   const lines = [
     `# 投資判断用リサーチサマリ: ${label}`,
@@ -525,6 +588,14 @@ function buildMarkdown(data) {
     `- 通貨: ${company.currency || ""}`,
     `- データ基準日: ${company.as_of || ""}`,
     `- 投資仮説: ${data.thesis || "未入力"}`,
+    "",
+    "## 判断ブリーフ",
+    "",
+    `- 現在の扱い: ${brief.handling}`,
+    `- 今日の人間判断: ${brief.humanDecision}`,
+    `- 理由: ${brief.reason}`,
+    `- 次の一手: ${brief.nextAction}`,
+    `- 完了条件: ${brief.completionCriteria}`,
     "",
     "## 結論サマリ",
     "",

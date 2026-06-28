@@ -23,9 +23,9 @@
         <div class="panel-title">
           <h2 id="input-title">エビデンス入力</h2>
           <div class="actions">
-            <button type="button" id="loadSampleButton">Sample</button>
-            <button type="button" id="formatButton">Format</button>
-            <button type="button" id="summarizeButton" class="primary">Summary</button>
+            <button type="button" id="loadSampleButton">サンプル</button>
+            <button type="button" id="formatButton">JSON整形</button>
+            <button type="button" id="summarizeButton" class="primary">サマリ生成</button>
           </div>
         </div>
         <form id="evidenceForm" class="evidence-form">
@@ -102,7 +102,7 @@
           </label>
           <div class="form-actions">
             <button type="submit" class="primary">エビデンス追加</button>
-            <button type="button" id="clearFormButton">Clear</button>
+            <button type="button" id="clearFormButton">入力クリア</button>
           </div>
         </form>
         <textarea id="jsonInput" spellcheck="false" aria-label="会社別エビデンスJSON"></textarea>
@@ -112,7 +112,7 @@
             JSONを開く
           </label>
           <button type="button" id="downloadButton">Markdown保存</button>
-          <button type="button" id="copyButton">Copy</button>
+          <button type="button" id="copyButton">コピー</button>
         </div>
         <p id="errorBox" class="error" role="alert"></p>
       </section>
