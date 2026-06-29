@@ -124,6 +124,64 @@ CSV_COLUMNS = [
     "source_type",
 ]
 
+MISSING_PRIORITY_CONFIG = {
+    "valuation": {
+        "priority": 100,
+        "reason": "期待リターンと下落余地が未確認だと投資候補化できない。",
+        "action": "現在価格を含むブル・ベース・ベアのシナリオを入力する。",
+    },
+    "risk_scenarios": {
+        "priority": 98,
+        "reason": "反証条件と最大損失がないと、失敗時の撤退判断が遅れる。",
+        "action": "反証条件、ベアケース、損失許容度を明文化する。",
+    },
+    "market": {
+        "priority": 92,
+        "reason": "流動性と売買コストが不明だとポジションサイズを決められない。",
+        "action": "時価総額、売買代金、スプレッド、ボラティリティを確認する。",
+    },
+    "estimates": {
+        "priority": 88,
+        "reason": "市場期待との差が不明だと決算サプライズを評価しにくい。",
+        "action": "会社計画、コンセンサス、修正方向を確認する。",
+    },
+    "ownership_flows": {
+        "priority": 84,
+        "reason": "需給の混雑や売り圧力が残ると、良いファンダメンタルでも株価が動きにくい。",
+        "action": "保有・需給・空売り・指数イベントを確認する。",
+    },
+    "capital_allocation": {
+        "priority": 78,
+        "reason": "資本政策が悪いと、利益成長が株主価値に変わりにくい。",
+        "action": "自社株買い、配当、M&A、希薄化、ROIC/WACCを確認する。",
+    },
+    "governance_legal": {
+        "priority": 76,
+        "reason": "ガバナンス・法務リスクは突然バリュエーションを壊す。",
+        "action": "ガバナンス、訴訟、規制、会計リスクを確認する。",
+    },
+    "events_catalysts": {
+        "priority": 72,
+        "reason": "株価が動く時期が不明だと資金効率と監視頻度を決めにくい。",
+        "action": "決算、説明会、承認、指数入替などのイベント日程を確認する。",
+    },
+    "financials": {
+        "priority": 68,
+        "reason": "一次財務データがないと投資仮説の土台が弱い。",
+        "action": "売上、利益率、FCF、資本効率、財務安全性を一次資料で確認する。",
+    },
+    "sector_competition": {
+        "priority": 58,
+        "reason": "個社要因と業界サイクルを分けないと持続性を見誤る。",
+        "action": "市場成長率、競合マージン、価格・在庫・稼働率を確認する。",
+    },
+    "macro_rates_fx": {
+        "priority": 48,
+        "reason": "外部環境の感応度が不明だとシナリオの前提が荒くなる。",
+        "action": "金利、為替、商品価格、PMIなどの感応度を確認する。",
+    },
+}
+
 
 def load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
@@ -477,6 +535,23 @@ def coverage_report(evidence: list[dict[str, Any]], catalog: dict[str, Any]) -> 
     return {"coverage_pct": coverage, "covered": covered_known, "missing": missing}
 
 
+def prioritize_missing_data(catalog: dict[str, Any], missing: list[str]) -> list[dict[str, Any]]:
+    by_category = catalog_by_id(catalog)
+    result: list[dict[str, Any]] = []
+    for category_id in missing:
+        category = by_category.get(category_id, {})
+        config = MISSING_PRIORITY_CONFIG.get(
+            category_id,
+            {
+                "priority": 40,
+                "reason": "投資判断の抜け漏れを減らすため確認が必要。",
+                "action": f"{category.get('name', category_id)}の一次情報と投資判断上の意味を確認する。",
+            },
+        )
+        result.append({"id": category_id, "name": category.get("name", category_id), **config})
+    return sorted(result, key=lambda item: item["priority"], reverse=True)
+
+
 def split_evidence(evidence: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     result = {"positive": [], "negative": [], "neutral": [], "mixed": [], "unknown": []}
     for row in evidence:
@@ -549,6 +624,7 @@ def evaluate_investability(
     missing_core = [category for category in core_categories if category not in categories]
     institutional_required = ["ownership_flows", "capital_allocation", "governance_legal"]
     missing_institutional = [category for category in institutional_required if category not in categories]
+    missing_priority = prioritize_missing_data(catalog, coverage["missing"])
 
     has_valuation = bool(valuation_result.get("scenarios"))
     current_price = valuation_result.get("current_price") or 0
@@ -639,12 +715,7 @@ def evaluate_investability(
         warnings.append("期待リターンがベアケース損失を十分に上回っていません。")
     if coverage["coverage_pct"] < 75:
         next_actions.append("不足カテゴリを埋め、情報カバレッジを75%以上に上げる。")
-    if "ownership_flows" not in categories:
-        next_actions.append("保有・需給・空売り・指数イベントを確認する。")
-    if "governance_legal" not in categories:
-        next_actions.append("ガバナンス、訴訟、規制、会計リスクを確認する。")
-    if "capital_allocation" not in categories:
-        next_actions.append("自社株買い、配当、M&A、希薄化、ROIC/WACCを確認する。")
+    next_actions.extend([item["action"] for item in missing_priority[:3]])
     if not next_actions:
         next_actions.append("主要反証条件を次回決算・イベントで再検証する。")
 
@@ -670,6 +741,7 @@ def evaluate_investability(
         "bull_return": bull_return,
         "risk_reward": risk_reward,
         "missing_core": missing_core,
+        "missing_priority": missing_priority,
         "blockers": blockers,
         "warnings": warnings,
         "next_actions": next_actions,
@@ -715,6 +787,161 @@ def decision_brief(investability: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def estimate_position_size(investability: dict[str, Any], coverage: dict[str, Any]) -> dict[str, Any]:
+    constraints: list[str] = []
+    blockers = investability.get("blockers", [])
+    if blockers:
+        return {
+            "label": "投資不可",
+            "max_initial_weight": "0%",
+            "rationale": "調査ブロッカーが残っているため、投資候補として扱わない。",
+            "constraints": blockers[:3],
+        }
+    if coverage.get("coverage_pct", 0) < 85:
+        constraints.append("情報カバレッジ85%未満")
+    if investability.get("primary_source_ratio", 0) < 0.4:
+        constraints.append("一次情報・取引所・規制当局ソース比率40%未満")
+    expected_return = investability.get("expected_return")
+    bear_return = investability.get("bear_return")
+    risk_reward = investability.get("risk_reward")
+    if expected_return is not None and expected_return < 0.10:
+        constraints.append("期待リターン10%未満")
+    if bear_return is not None and bear_return < -0.35:
+        constraints.append("ベアケース下落35%超")
+    if risk_reward is not None and risk_reward < 1.0:
+        constraints.append("期待リターン/ベア損失が1.0x未満")
+
+    readiness = investability.get("readiness")
+    score = investability.get("score", 0)
+    if readiness == "投資候補" and score >= 85 and not constraints:
+        return {
+            "label": "標準候補",
+            "max_initial_weight": "2-4%",
+            "rationale": "警告がなく、期待値と下方リスクの釣り合いが取れている。",
+            "constraints": ["流動性、税務、既存ポートフォリオ相関は別途確認する。"],
+        }
+    if readiness == "投資候補":
+        return {
+            "label": "小さく開始",
+            "max_initial_weight": "1-2%",
+            "rationale": "投資候補だが、制約条件を残したまま大きく取る段階ではない。",
+            "constraints": constraints or ["決算後レビューまで増額しない。"],
+        }
+    if readiness == "監視候補":
+        return {
+            "label": "打診・監視",
+            "max_initial_weight": "0-1%",
+            "rationale": "投資仮説は残るが、未充足データまたは警告がある。",
+            "constraints": constraints or ["次の確認事項が完了するまで増額しない。"],
+        }
+    return {
+        "label": "監視のみ",
+        "max_initial_weight": "0%",
+        "rationale": "追加調査または見送り寄りのため、資金投入より調査更新を優先する。",
+        "constraints": constraints or ["判断ブリーフの完了条件を満たすまで再判定する。"],
+    }
+
+
+def refutation_plan(data: dict[str, Any], valuation_result: dict[str, Any], investability: dict[str, Any]) -> dict[str, list[str]]:
+    evidence = data.get("evidence", [])
+    if not isinstance(evidence, list):
+        evidence = []
+    candidates = []
+    for row in evidence:
+        if not isinstance(row, dict):
+            continue
+        text = f"{row.get('category', '')} {row.get('item', '')} {row.get('value', '')} {row.get('interpretation', '')}"
+        if normalize_id(row.get("category")) == "risk_scenarios" or normalize_id(row.get("direction")) == "negative" or "反証" in text:
+            candidates.append(row)
+    conditions = [
+        f"{md_escape(row.get('item', '未設定'))}: {md_escape(row.get('value', ''))}. {md_escape(row.get('interpretation', ''))}".strip()
+        for row in candidates[:6]
+    ]
+    if not conditions:
+        conditions.append("反証条件が未入力です。投資判断前に、仮説が崩れる条件を明文化してください。")
+    if investability.get("bear_return") is not None:
+        conditions.append(f"ベアケース下落率 {safe_pct(investability.get('bear_return'))} を許容できない場合は投資候補から外す。")
+
+    review_triggers = [
+        f"{md_escape(row.get('item', 'イベント'))}: {md_escape(row.get('value', ''))}".strip()
+        for row in evidence
+        if isinstance(row, dict) and normalize_id(row.get("category")) == "events_catalysts"
+    ][:4]
+    if not review_triggers:
+        review_triggers.append("次回決算、会社説明会、業績修正、主要ニュース発生時に再判定する。")
+
+    post_review = [
+        "投資前の仮説、期待リターン、反証条件を決算後の実績と比較する。",
+        "売上成長、営業利益率、FCF、受注・在庫など主要KPIのズレを記録する。",
+        "判断ブリーフの扱いを、投資候補、監視候補、追加調査、見送りのいずれかに更新する。",
+    ]
+    if not valuation_result.get("scenarios"):
+        post_review.insert(0, "現在価格を含むシナリオを作成してから、決算後レビューを実施する。")
+    return {"conditions": conditions, "review_triggers": review_triggers, "post_review": post_review}
+
+
+def research_snapshot(data: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
+    company = data.get("company", {}) if isinstance(data.get("company"), dict) else {}
+    evidence = data.get("evidence", []) if isinstance(data.get("evidence"), list) else []
+    as_of = company.get("as_of", today_iso())
+    issues = validate_research_data(data, catalog)
+    score = evidence_score(evidence, as_of)
+    coverage = coverage_report(evidence, catalog)
+    valuation_result = calculate_valuation(data.get("valuation"))
+    investability = evaluate_investability(data, catalog, issues, score, coverage, valuation_result)
+    position = estimate_position_size(investability, coverage)
+    label = " / ".join([md_escape(company.get("ticker", "")), md_escape(company.get("name", ""))]).strip(" /") or "未設定"
+    return {
+        "data": data,
+        "label": label,
+        "score": score,
+        "coverage": coverage,
+        "issues": issues,
+        "valuation": valuation_result,
+        "investability": investability,
+        "position": position,
+    }
+
+
+def research_items_from_payload(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in ["companies", "research"]:
+            if isinstance(payload.get(key), list):
+                return [item for item in payload[key] if isinstance(item, dict)]
+        return [payload]
+    return []
+
+
+def load_research_items(path: Path) -> list[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as f:
+        return research_items_from_payload(json.load(f))
+
+
+def build_comparison_markdown(items: list[dict[str, Any]], catalog: dict[str, Any]) -> str:
+    snapshots = sorted(
+        [research_snapshot(item, catalog) for item in items],
+        key=lambda item: (item["investability"]["score"], item["coverage"]["coverage_pct"]),
+        reverse=True,
+    )
+    lines = [
+        "# 銘柄比較・優先順位",
+        "",
+        "|順位|銘柄|客観ゲート|投資可能性|証拠|カバレッジ|期待|ベア|R/R|サイズ|次の一手|",
+        "|---:|---|---|---:|---:|---:|---:|---:|---:|---|---|",
+    ]
+    for idx, item in enumerate(snapshots, start=1):
+        investability = item["investability"]
+        risk_reward = investability.get("risk_reward")
+        lines.append(
+            f"|{idx}|{item['label']}|{investability['readiness']}|{investability['score']}|{item['score']['score']}|"
+            f"{item['coverage']['coverage_pct']}%|{safe_pct(investability.get('expected_return'))}|{safe_pct(investability.get('bear_return'))}|"
+            f"{'-' if risk_reward is None else f'{risk_reward:.2f}x'}|{item['position']['label']}|{md_escape((investability.get('next_actions') or ['-'])[0])}|"
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog: bool) -> str:
     issues = validate_research_data(data, catalog)
     issue_counts = validation_summary(issues)
@@ -730,6 +957,8 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     valuation_result = calculate_valuation(data.get("valuation"))
     investability = evaluate_investability(data, catalog, issues, score, coverage, valuation_result)
     brief = decision_brief(investability)
+    position = estimate_position_size(investability, coverage)
+    refutation = refutation_plan(data, valuation_result, investability)
 
     ticker = md_escape(company.get("ticker", ""))
     name = md_escape(company.get("name", ""))
@@ -782,7 +1011,26 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     lines.extend(["", "次の確認事項:", *[f"- {item}" for item in investability["next_actions"]]])
     lines.extend([
         "",
-        "## 5. データ品質監査",
+        "## 5. ポジションサイズ・制約",
+        "",
+        f"- 扱い: {md_escape(position['label'])}",
+        f"- 調査上の初期上限: {md_escape(position['max_initial_weight'])}",
+        f"- 理由: {md_escape(position['rationale'])}",
+    ])
+    lines.extend([f"- 制約: {md_escape(item)}" for item in position["constraints"]])
+    lines.extend([
+        "",
+        "## 6. 未充足データ優先度",
+        "",
+    ])
+    if investability["missing_priority"]:
+        for item in investability["missing_priority"][:8]:
+            lines.append(f"- P{item['priority']} {md_escape(item['name'])}: {md_escape(item['reason'])} / {md_escape(item['action'])}")
+    else:
+        lines.append("- 未充足カテゴリはありません。次はデータ鮮度と一次情報比率を点検してください。")
+    lines.extend([
+        "",
+        "## 7. データ品質監査",
         "",
     ])
     if issues:
@@ -793,15 +1041,23 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     else:
         lines.append("- 入力検証で重大な問題は見つかりませんでした。")
 
-    lines.extend(["", "## 6. 強材料", ""])
+    lines.extend(["", "## 8. 強材料", ""])
     lines.extend(format_row_bullets(buckets["positive"], "明確な強材料は未入力です。", as_of))
-    lines.extend(["", "## 7. 弱材料・反証条件", ""])
+    lines.extend(["", "## 9. 弱材料・反証条件", ""])
     lines.extend(format_row_bullets(buckets["negative"], "明確な弱材料は未入力です。", as_of))
-    lines.extend(["", "## 8. 中立・確認待ち材料", ""])
+    lines.extend(["", "## 10. 反証条件・決算後レビュー", ""])
+    lines.append("撤回条件:")
+    lines.extend([f"- {item}" for item in refutation["conditions"]])
+    lines.extend(["", "再判定トリガー:"])
+    lines.extend([f"- {item}" for item in refutation["review_triggers"]])
+    lines.extend(["", "レビュー記録:"])
+    lines.extend([f"- {item}" for item in refutation["post_review"]])
+
+    lines.extend(["", "## 11. 中立・確認待ち材料", ""])
     neutral_rows = buckets["neutral"] + buckets["mixed"] + buckets["unknown"]
     lines.extend(format_row_bullets(neutral_rows, "中立・確認待ち材料は未入力です。", as_of))
 
-    lines.extend(["", "## 9. 未充足データと次の取得優先度", ""])
+    lines.extend(["", "## 12. 未充足データと次の取得優先度", ""])
     if coverage["missing"]:
         for category_id in coverage["missing"]:
             category = by_category[category_id]
@@ -812,7 +1068,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
 
     financials = data.get("financials", {})
     if financials.get("kpis"):
-        lines.extend(["", "## 10. SEC財務KPI時系列", ""])
+        lines.extend(["", "## 13. SEC財務KPI時系列", ""])
         lines.append("|FY|売上|売上成長|営業利益率|FCF|FCFマージン|ROE|負債/資産|")
         lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
         for row in financials["kpis"]:
@@ -834,7 +1090,7 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
             )
 
     if valuation_result.get("scenarios"):
-        lines.extend(["", "## 11. バリュエーション・シナリオ", ""])
+        lines.extend(["", "## 14. バリュエーション・シナリオ", ""])
         lines.append(f"- 期待株価: {valuation_result.get('currency', '')}{valuation_result.get('expected_price', 0):.2f}")
         if valuation_result.get("current_price"):
             lines.append(f"- 現在価格比の期待リターン: {safe_pct(valuation_result.get('expected_return'))}")
@@ -848,10 +1104,10 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
                 f"{row['ev_ebitda']:.1f}x|{valuation_result.get('currency', '')}{row['price']:.2f}|"
             )
 
-    lines.extend(["", "## 12. エージェント実行計画", ""])
+    lines.extend(["", "## 15. エージェント実行計画", ""])
     lines.extend(format_agent_plan_markdown(load_agent_playbook(), compact=True).splitlines())
 
-    lines.extend(["", "## 13. エビデンス台帳", ""])
+    lines.extend(["", "## 16. エビデンス台帳", ""])
     lines.append("|カテゴリ|項目|値|解釈|出所|日付|確信度|重要度|出所種別|方向|")
     lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for row in evidence:
@@ -1409,12 +1665,31 @@ def format_validation_markdown(payload: dict[str, Any]) -> str:
 
 def run_summary(args: argparse.Namespace) -> None:
     catalog = load_json(CATALOG_PATH)
-    data = load_json(args.input)
+    items = load_research_items(args.input)
+    if not items:
+        raise SystemExit("input に会社別JSONが含まれていません。")
+    data = items[0]
     markdown_text = build_summary(data, catalog, args.include_catalog)
     if args.format == "html":
         text = render_html_report(markdown_text)
     elif args.format == "json":
         text = json.dumps({"markdown": markdown_text, "audit": validate_research_data(data, catalog)}, ensure_ascii=False, indent=2)
+    else:
+        text = markdown_text
+    write_text(args.output, text)
+
+
+def run_compare(args: argparse.Namespace) -> None:
+    catalog = load_json(CATALOG_PATH)
+    items: list[dict[str, Any]] = []
+    for path in args.inputs:
+        items.extend(load_research_items(path))
+    if len(items) < 2:
+        raise SystemExit("compare には2社以上の会社別JSONが必要です。")
+    markdown_text = build_comparison_markdown(items, catalog)
+    if args.format == "json":
+        payload = [research_snapshot(item, catalog) for item in items]
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
     else:
         text = markdown_text
     write_text(args.output, text)
@@ -1457,6 +1732,7 @@ def build_parser() -> argparse.ArgumentParser:
               python tools/invest_research_tool.py template --output examples/my_company.json
               python tools/invest_research_tool.py validate --input examples/sample_company.json
               python tools/invest_research_tool.py summary --input examples/sample_company.json --output outputs/sample_summary.md
+              python tools/invest_research_tool.py compare examples/company_a.json examples/company_b.json --output outputs/compare.md
               python tools/invest_research_tool.py fetch-sec --ticker AAPL --years 5 --user-agent "Your Name your@email.com" --output data/AAPL_sec.json
               python tools/invest_research_tool.py jp-template --output examples/jp_import_template.csv
               python tools/invest_research_tool.py import-csv --base examples/sample_company.json --input examples/jp_import_template.csv --output data/merged.json
@@ -1487,6 +1763,12 @@ def build_parser() -> argparse.ArgumentParser:
     summary.add_argument("--format", choices=["markdown", "html", "json"], default="markdown")
     summary.add_argument("--include-catalog", action="store_true", help="サマリ末尾に情報カタログを含めます。")
     summary.set_defaults(func=run_summary)
+
+    compare = sub.add_parser("compare", help="複数の会社別JSONを同じ基準で横比較します。")
+    compare.add_argument("inputs", type=Path, nargs="+")
+    compare.add_argument("--output", type=Path)
+    compare.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    compare.set_defaults(func=run_compare)
 
     sec = sub.add_parser("fetch-sec", help="SEC EDGAR APIから米国企業の初期JSONと年次KPIを作成します。")
     sec.add_argument("--ticker", required=True)

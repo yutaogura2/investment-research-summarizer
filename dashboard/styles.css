@@ -283,7 +283,8 @@ textarea:focus {
 
 .summary-output {
   padding: 16px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
 }
 
@@ -453,6 +454,47 @@ textarea:focus {
   border-collapse: collapse;
   margin-top: 8px;
   font-size: 13px;
+}
+
+.table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.comparison-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.comparison-table th,
+.comparison-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.comparison-table th:nth-child(1),
+.comparison-table td:nth-child(1),
+.comparison-table th:nth-child(4),
+.comparison-table td:nth-child(4),
+.comparison-table th:nth-child(5),
+.comparison-table td:nth-child(5),
+.comparison-table th:nth-child(6),
+.comparison-table td:nth-child(6),
+.comparison-table th:nth-child(7),
+.comparison-table td:nth-child(7),
+.comparison-table th:nth-child(8),
+.comparison-table td:nth-child(8),
+.comparison-table th:nth-child(9),
+.comparison-table td:nth-child(9) {
+  text-align: right;
+  white-space: nowrap;
 }
 
 .evidence-table .weight-cell {

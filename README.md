@@ -34,6 +34,7 @@ PowerShell で `株銘柄選定` フォルダに移動して使います。
 .\run_tool.cmd validate --input examples/sample_company.json --output outputs/audit.md
 .\run_tool.cmd summary --input examples/sample_company.json --output outputs/sample_summary.md
 .\run_tool.cmd summary --input examples/sample_company.json --format html --output outputs/sample_summary.html
+.\run_tool.cmd compare examples/sample_company.json examples/sample_company.json --output outputs/compare.md
 ```
 
 米国株はSEC EDGAR APIから初期JSONを作れます。SECのアクセス方針に合わせ、連絡可能なメールアドレスを含むUser-Agentを指定してください。
@@ -90,6 +91,10 @@ PythonがPATHにある環境では、`python tools/invest_research_tool.py ...` 
 - 投資可能性ゲート: カバレッジ、一次情報比率、反証材料、期待リターン、ベアケース、リスク/リワードで客観評価
 - `投資候補` 判定には、重要カテゴリ不足、一次情報不足、カバレッジ不足などの警告がないことを要求
 - 判断ブリーフ: 現在の扱い、人間が今日決めること、理由、次の一手、完了条件をサマリ先頭に表示
+- 銘柄比較: 複数社JSONを同じ基準で比較し、投資可能性、カバレッジ、期待値、ベアケース、サイズ目安を一覧化
+- 未充足データ優先度: 不足カテゴリを投資判断への影響順に並べ、次に埋めるべき情報を明示
+- ポジションサイズ制約: 調査上の初期上限と、増額前に解消すべき制約を表示
+- 反証条件・決算後レビュー: 投資仮説の撤回条件、再判定トリガー、決算後レビュー項目を表示
 - ブラウザ画面でのエビデンス追加フォーム
 
 ### Phase 2: SEC時系列取得とKPI自動計算
@@ -157,7 +162,8 @@ PythonがPATHにある環境では、`python tools/invest_research_tool.py ...` 
 2. 株価、流動性、バリュエーション、コンセンサスを追加する。
 3. 競合、業界統計、マクロ感応度、需給を追加する。
 4. ブル・ベース・ベア、反証条件、損失許容度を入力する。
-5. 判断ブリーフを先に読み、投資候補、監視候補、追加調査、見送りのどれとして扱うかを人間が決める。
-6. サマリを出力し、未充足カテゴリを埋める。
+5. 複数候補がある場合は比較モードで優先順位を決める。
+6. 判断ブリーフを先に読み、投資候補、監視候補、追加調査、見送りのどれとして扱うかを人間が決める。
+7. ポジションサイズ制約と反証条件を確認し、未充足カテゴリを埋める。
 
 投資判断では、最終的にポジションサイズ、流動性、税務、手数料、自身のリスク許容度を別途確認してください。

@@ -98,10 +98,29 @@ function compactNumber(value, currency = "") {
 }
 
 function parseData() {
+  return parseResearchInput().primary;
+}
+
+function researchItemsFromParsed(parsed) {
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.companies)) return parsed.companies;
+  if (Array.isArray(parsed?.research)) return parsed.research;
+  return [parsed];
+}
+
+function assertResearchShape(data, index = 0) {
+  const prefix = index ? `companies[${index}]` : "root";
+  if (!data || typeof data !== "object") throw new Error(`${prefix} はオブジェクトで入力してください。`);
+  if (!data.company || typeof data.company !== "object") throw new Error(`${prefix}.company オブジェクトが必要です。`);
+  if (!Array.isArray(data.evidence)) throw new Error(`${prefix}.evidence は配列で入力してください。`);
+}
+
+function parseResearchInput() {
   const parsed = JSON.parse(jsonInput.value);
-  if (!parsed.company || typeof parsed.company !== "object") throw new Error("company オブジェクトが必要です。");
-  if (!Array.isArray(parsed.evidence)) throw new Error("evidence は配列で入力してください。");
-  return parsed;
+  const items = researchItemsFromParsed(parsed);
+  if (!items.length) throw new Error("比較対象がありません。");
+  items.forEach(assertResearchShape);
+  return { parsed, items, primary: items[0] };
 }
 
 function inferSourceType(row) {
@@ -196,6 +215,78 @@ function coverage(evidence) {
   return { pct: Math.round((coveredKnown.length / categoryIds.length) * 100), covered: coveredKnown, missing };
 }
 
+const missingPriorityConfig = {
+  valuation: {
+    priority: 100,
+    reason: "期待リターンと下落余地が未確認だと投資候補化できない。",
+    action: "現在価格を含むブル・ベース・ベアのシナリオを入力する。"
+  },
+  risk_scenarios: {
+    priority: 98,
+    reason: "反証条件と最大損失がないと、失敗時の撤退判断が遅れる。",
+    action: "反証条件、ベアケース、損失許容度を明文化する。"
+  },
+  market: {
+    priority: 92,
+    reason: "流動性と売買コストが不明だとポジションサイズを決められない。",
+    action: "時価総額、売買代金、スプレッド、ボラティリティを確認する。"
+  },
+  estimates: {
+    priority: 88,
+    reason: "市場期待との差が不明だと決算サプライズを評価しにくい。",
+    action: "会社計画、コンセンサス、修正方向を確認する。"
+  },
+  ownership_flows: {
+    priority: 84,
+    reason: "需給の混雑や売り圧力が残ると、良いファンダメンタルでも株価が動きにくい。",
+    action: "保有・需給・空売り・指数イベントを確認する。"
+  },
+  capital_allocation: {
+    priority: 78,
+    reason: "資本政策が悪いと、利益成長が株主価値に変わりにくい。",
+    action: "自社株買い、配当、M&A、希薄化、ROIC/WACCを確認する。"
+  },
+  governance_legal: {
+    priority: 76,
+    reason: "ガバナンス・法務リスクは突然バリュエーションを壊す。",
+    action: "ガバナンス、訴訟、規制、会計リスクを確認する。"
+  },
+  events_catalysts: {
+    priority: 72,
+    reason: "株価が動く時期が不明だと資金効率と監視頻度を決めにくい。",
+    action: "決算、説明会、承認、指数入替などのイベント日程を確認する。"
+  },
+  financials: {
+    priority: 68,
+    reason: "一次財務データがないと投資仮説の土台が弱い。",
+    action: "売上、利益率、FCF、資本効率、財務安全性を一次資料で確認する。"
+  },
+  sector_competition: {
+    priority: 58,
+    reason: "個社要因と業界サイクルを分けないと持続性を見誤る。",
+    action: "市場成長率、競合マージン、価格・在庫・稼働率を確認する。"
+  },
+  macro_rates_fx: {
+    priority: 48,
+    reason: "外部環境の感応度が不明だとシナリオの前提が荒くなる。",
+    action: "金利、為替、商品価格、PMIなどの感応度を確認する。"
+  }
+};
+
+function prioritizeMissingData(missingIds = []) {
+  return missingIds
+    .map((id) => {
+      const item = catalog.find((entry) => entry.id === id);
+      const config = missingPriorityConfig[id] || {
+        priority: 40,
+        reason: "投資判断の抜け漏れを減らすため確認が必要。",
+        action: `${item?.name || id}の一次情報と投資判断上の意味を確認する。`
+      };
+      return { id, name: item?.name || id, ...config };
+    })
+    .sort((a, b) => b.priority - a.priority);
+}
+
 function groupEvidence(evidence) {
   return evidence.reduce(
     (acc, row) => {
@@ -284,6 +375,7 @@ function evaluateInvestability(data, score, cov, issues, valuation) {
   const missingCore = coreCategories.filter((category) => !categories.has(category));
   const institutionalRequired = ["ownership_flows", "capital_allocation", "governance_legal"];
   const missingInstitutional = institutionalRequired.filter((category) => !categories.has(category));
+  const missingPriority = prioritizeMissingData(cov.missing);
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
   const warningCount = issues.filter((issue) => issue.severity === "warning").length;
   const currentPrice = valuation?.currentPrice || 0;
@@ -346,9 +438,7 @@ function evaluateInvestability(data, score, cov, issues, valuation) {
   if (bearReturn !== null && bearReturn < -0.35) warnings.push("ベアケース下落余地が大きく、ポジションサイズ制約が必要です。");
   if (riskReward !== null && riskReward < 1) warnings.push("期待リターンがベアケース損失を十分に上回っていません。");
   if (cov.pct < 75) nextActions.push("不足カテゴリを埋め、情報カバレッジを75%以上に上げる。");
-  if (!categories.has("ownership_flows")) nextActions.push("保有・需給・空売り・指数イベントを確認する。");
-  if (!categories.has("governance_legal")) nextActions.push("ガバナンス、訴訟、規制、会計リスクを確認する。");
-  if (!categories.has("capital_allocation")) nextActions.push("自社株買い、配当、M&A、希薄化、ROIC/WACCを確認する。");
+  missingPriority.slice(0, 3).forEach((item) => nextActions.push(item.action));
   if (!nextActions.length) nextActions.push("主要反証条件を次回決算・イベントで再検証する。");
 
   let readiness = "見送り寄り";
@@ -357,7 +447,7 @@ function evaluateInvestability(data, score, cov, issues, valuation) {
   else if (investScore >= 68) readiness = "監視候補";
   else if (investScore >= 50) readiness = "追加調査";
 
-  return { score: investScore, readiness, institutionalRatio, primaryRatio, expectedReturn, bearReturn, bullReturn, riskReward, blockers, warnings, nextActions };
+  return { score: investScore, readiness, institutionalRatio, primaryRatio, expectedReturn, bearReturn, bullReturn, riskReward, missingPriority, blockers, warnings, nextActions };
 }
 
 function decisionBrief(investability) {
@@ -396,6 +486,128 @@ function decisionBrief(investability) {
   return { statusClass, handling, humanDecision, reason, nextAction, completionCriteria };
 }
 
+function estimatePositionSize(investability, cov) {
+  const constraints = [];
+  if (investability.blockers?.length) {
+    return {
+      label: "投資不可",
+      maxInitialWeight: "0%",
+      rationale: "調査ブロッカーが残っているため、投資候補として扱わない。",
+      constraints: investability.blockers.slice(0, 3)
+    };
+  }
+  if (cov.pct < 85) constraints.push("情報カバレッジ85%未満");
+  if (investability.primaryRatio < 0.4) constraints.push("一次情報・取引所・規制当局ソース比率40%未満");
+  if (investability.expectedReturn !== null && investability.expectedReturn < 0.1) constraints.push("期待リターン10%未満");
+  if (investability.bearReturn !== null && investability.bearReturn < -0.35) constraints.push("ベアケース下落35%超");
+  if (investability.riskReward !== null && investability.riskReward < 1) constraints.push("期待リターン/ベア損失が1.0x未満");
+
+  if (investability.readiness === "投資候補" && investability.score >= 85 && !constraints.length) {
+    return {
+      label: "標準候補",
+      maxInitialWeight: "2-4%",
+      rationale: "警告がなく、期待値と下方リスクの釣り合いが取れている。",
+      constraints: ["流動性、税務、既存ポートフォリオ相関は別途確認する。"]
+    };
+  }
+  if (investability.readiness === "投資候補") {
+    return {
+      label: "小さく開始",
+      maxInitialWeight: "1-2%",
+      rationale: "投資候補だが、制約条件を残したまま大きく取る段階ではない。",
+      constraints: constraints.length ? constraints : ["決算後レビューまで増額しない。"]
+    };
+  }
+  if (investability.readiness === "監視候補") {
+    return {
+      label: "打診・監視",
+      maxInitialWeight: "0-1%",
+      rationale: "投資仮説は残るが、未充足データまたは警告がある。",
+      constraints: constraints.length ? constraints : ["次の確認事項が完了するまで増額しない。"]
+    };
+  }
+  return {
+    label: "監視のみ",
+    maxInitialWeight: "0%",
+    rationale: "追加調査または見送り寄りのため、資金投入より調査更新を優先する。",
+    constraints: constraints.length ? constraints : ["判断ブリーフの完了条件を満たすまで再判定する。"]
+  };
+}
+
+function refutationPlan(data, valuation, investability) {
+  const evidence = data.evidence || [];
+  const candidates = evidence.filter((row) => {
+    const text = `${row.category || ""} ${row.item || ""} ${row.value || ""} ${row.interpretation || ""}`;
+    return normalize(row.category) === "risk_scenarios" || normalize(row.direction) === "negative" || text.includes("反証");
+  });
+  const conditions = candidates.slice(0, 6).map((row) => `${row.item || "未設定"}: ${row.value || ""}. ${row.interpretation || ""}`.trim());
+  if (!conditions.length) conditions.push("反証条件が未入力です。投資判断前に、仮説が崩れる条件を明文化してください。");
+  if (investability.bearReturn !== null) conditions.push(`ベアケース下落率 ${pct(investability.bearReturn)} を許容できない場合は投資候補から外す。`);
+
+  const reviewTriggers = evidence
+    .filter((row) => normalize(row.category) === "events_catalysts")
+    .slice(0, 4)
+    .map((row) => `${row.item || "イベント"}: ${row.value || ""}`.trim());
+  if (!reviewTriggers.length) reviewTriggers.push("次回決算、会社説明会、業績修正、主要ニュース発生時に再判定する。");
+
+  const postReview = [
+    "投資前の仮説、期待リターン、反証条件を決算後の実績と比較する。",
+    "売上成長、営業利益率、FCF、受注・在庫など主要KPIのズレを記録する。",
+    "判断ブリーフの扱いを、投資候補、監視候補、追加調査、見送りのいずれかに更新する。"
+  ];
+  if (!valuation?.rows?.length) postReview.unshift("現在価格を含むシナリオを作成してから、決算後レビューを実施する。");
+
+  return { conditions, reviewTriggers, postReview };
+}
+
+function analysisSnapshot(data) {
+  const evidence = data.evidence || [];
+  const asOf = data.company?.as_of;
+  const score = scoreEvidence(evidence, asOf);
+  const cov = coverage(evidence);
+  const issues = validateData(data);
+  const valuation = calculateValuation(data.valuation);
+  const investability = evaluateInvestability(data, score, cov, issues, valuation);
+  const position = estimatePositionSize(investability, cov);
+  const label = [data.company?.ticker, data.company?.name].filter(Boolean).join(" / ") || "未設定";
+  return { data, label, score, cov, issues, valuation, investability, position };
+}
+
+function renderComparison(items = []) {
+  if (items.length < 2) return "";
+  const snapshots = items
+    .map(analysisSnapshot)
+    .sort((a, b) => b.investability.score - a.investability.score || b.cov.pct - a.cov.pct);
+  const rows = snapshots
+    .map((item, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(item.label)}</td>
+        <td>${escapeHtml(item.investability.readiness)}</td>
+        <td>${item.investability.score}</td>
+        <td>${item.score.score}</td>
+        <td>${item.cov.pct}%</td>
+        <td>${pct(item.investability.expectedReturn)}</td>
+        <td>${pct(item.investability.bearReturn)}</td>
+        <td>${item.investability.riskReward === null ? "-" : `${item.investability.riskReward.toFixed(2)}x`}</td>
+        <td>${escapeHtml(item.position.label)}</td>
+        <td>${escapeHtml(item.investability.nextActions[0] || "-")}</td>
+      </tr>
+    `)
+    .join("");
+  return `
+    <section class="summary-block">
+      <h3>銘柄比較・優先順位</h3>
+      <div class="table-scroll">
+        <table class="comparison-table">
+          <thead><tr><th>#</th><th>銘柄</th><th>客観ゲート</th><th>投資可能性</th><th>証拠</th><th>カバレッジ</th><th>期待</th><th>ベア</th><th>R/R</th><th>サイズ</th><th>次の一手</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
 function renderAuditStrip(score, cov, issues, investability) {
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
   const warningCount = issues.filter((issue) => issue.severity === "warning").length;
@@ -408,7 +620,7 @@ function renderAuditStrip(score, cov, issues, investability) {
   `;
 }
 
-function renderSummary(data) {
+function renderSummary(data, comparisonItems = [data]) {
   const evidence = data.evidence || [];
   const asOf = data.company?.as_of;
   const score = scoreEvidence(evidence, asOf);
@@ -421,6 +633,9 @@ function renderSummary(data) {
   const valuation = calculateValuation(data.valuation);
   const investability = evaluateInvestability(data, score, cov, issues, valuation);
   const brief = decisionBrief(investability);
+  const position = estimatePositionSize(investability, cov);
+  const refutation = refutationPlan(data, valuation, investability);
+  const comparisonHtml = renderComparison(comparisonItems);
 
   scoreBox.textContent = score.score;
   asOfLabel.textContent = `基準日: ${company.as_of || "-"}`;
@@ -438,6 +653,13 @@ function renderSummary(data) {
         return `<li><strong>${escapeHtml(item?.name || id)}</strong>: ${escapeHtml((item?.metrics || []).join("、"))}</li>`;
       }).join("")
     : "<li>全カテゴリに少なくとも1件の証拠があります。次は数値の鮮度、一次資料比率、反証条件の精度を確認してください。</li>";
+
+  const missingPriorityHtml = investability.missingPriority.length
+    ? investability.missingPriority
+        .slice(0, 6)
+        .map((item) => `<li><strong>${escapeHtml(item.name)}</strong> <span class="muted">P${escapeHtml(item.priority)}</span>: ${escapeHtml(item.reason)} <span class="muted">${escapeHtml(item.action)}</span></li>`)
+        .join("")
+    : "<li>未充足カテゴリはありません。次はデータ鮮度と一次情報比率を点検してください。</li>";
 
   const investabilityHtml = `
     <section class="summary-block">
@@ -458,6 +680,33 @@ function renderSummary(data) {
       <ul class="summary-list">${(investability.warnings.length ? investability.warnings : ["主要な警告は未検出です。"]).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
       <h3>次の確認事項</h3>
       <ul class="summary-list">${investability.nextActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </section>
+  `;
+
+  const positionHtml = `
+    <section class="summary-block">
+      <h3>ポジションサイズ・制約</h3>
+      <div class="metrics">
+        <div class="metric"><span>扱い</span><strong>${escapeHtml(position.label)}</strong></div>
+        <div class="metric"><span>調査上の初期上限</span><strong>${escapeHtml(position.maxInitialWeight)}</strong></div>
+        <div class="metric"><span>客観ゲート</span><strong>${escapeHtml(investability.readiness)}</strong></div>
+      </div>
+      <ul class="summary-list">
+        <li>${escapeHtml(position.rationale)}</li>
+        ${position.constraints.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
+    </section>
+  `;
+
+  const refutationHtml = `
+    <section class="summary-block">
+      <h3>反証条件・決算後レビュー</h3>
+      <h3>撤回条件</h3>
+      <ul class="summary-list">${refutation.conditions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      <h3>再判定トリガー</h3>
+      <ul class="summary-list">${refutation.reviewTriggers.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      <h3>レビュー記録</h3>
+      <ul class="summary-list">${refutation.postReview.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
     </section>
   `;
 
@@ -533,6 +782,7 @@ function renderSummary(data) {
       </div>
     </section>
     <p class="notice">この出力は投資調査メモであり、売買推奨ではありません。一次情報、価格、リスク許容度を別途確認してください。</p>
+    ${comparisonHtml}
     <div class="metrics">
       <div class="metric"><span>対象</span><strong>${escapeHtml(label)}</strong></div>
       <div class="metric"><span>証拠スコア</span><strong>${score.score}/100</strong></div>
@@ -547,11 +797,14 @@ function renderSummary(data) {
       </ul>
     </section>
     ${investabilityHtml}
+    ${positionHtml}
     <section class="summary-block"><h3>データ品質監査</h3><ul class="summary-list">${issueHtml}</ul></section>
     <section class="summary-block"><h3>強材料</h3><ul class="summary-list">${renderBullets(grouped.positive, "明確な強材料は未入力です。", asOf)}</ul></section>
     <section class="summary-block"><h3>弱材料・反証条件</h3><ul class="summary-list">${renderBullets(grouped.negative, "明確な弱材料は未入力です。", asOf)}</ul></section>
+    ${refutationHtml}
     <section class="summary-block"><h3>中立・確認待ち材料</h3><ul class="summary-list">${renderBullets(neutralRows, "中立・確認待ち材料は未入力です。", asOf)}</ul></section>
     <section class="summary-block"><h3>未充足データ</h3><ul class="summary-list">${missingHtml}</ul></section>
+    <section class="summary-block"><h3>未充足データ優先度</h3><ul class="summary-list">${missingPriorityHtml}</ul></section>
     ${kpiHtml}
     ${valuationHtml}
     <section class="summary-block">
@@ -564,7 +817,19 @@ function renderSummary(data) {
   `;
 }
 
-function buildMarkdown(data) {
+function comparisonMarkdown(items = []) {
+  if (items.length < 2) return [];
+  const lines = ["", "## 銘柄比較・優先順位", "", "|順位|銘柄|客観ゲート|投資可能性|証拠|カバレッジ|期待|ベア|R/R|サイズ|次の一手|", "|---:|---|---|---:|---:|---:|---:|---:|---:|---|---|"];
+  items
+    .map(analysisSnapshot)
+    .sort((a, b) => b.investability.score - a.investability.score || b.cov.pct - a.cov.pct)
+    .forEach((item, index) => {
+      lines.push(`|${index + 1}|${item.label}|${item.investability.readiness}|${item.investability.score}|${item.score.score}|${item.cov.pct}%|${pct(item.investability.expectedReturn)}|${pct(item.investability.bearReturn)}|${item.investability.riskReward === null ? "-" : `${item.investability.riskReward.toFixed(2)}x`}|${item.position.label}|${item.investability.nextActions[0] || "-"}|`);
+    });
+  return lines;
+}
+
+function buildMarkdown(data, comparisonItems = [data]) {
   const evidence = data.evidence || [];
   const asOf = data.company?.as_of;
   const score = scoreEvidence(evidence, asOf);
@@ -575,6 +840,8 @@ function buildMarkdown(data) {
   const valuation = calculateValuation(data.valuation);
   const investability = evaluateInvestability(data, score, cov, issues, valuation);
   const brief = decisionBrief(investability);
+  const position = estimatePositionSize(investability, cov);
+  const refutation = refutationPlan(data, valuation, investability);
   const label = [company.ticker, company.name].filter(Boolean).join(" / ") || "未設定";
   const lines = [
     `# 投資判断用リサーチサマリ: ${label}`,
@@ -596,6 +863,7 @@ function buildMarkdown(data) {
     `- 理由: ${brief.reason}`,
     `- 次の一手: ${brief.nextAction}`,
     `- 完了条件: ${brief.completionCriteria}`,
+    ...comparisonMarkdown(comparisonItems),
     "",
     "## 結論サマリ",
     "",
@@ -624,6 +892,19 @@ function buildMarkdown(data) {
     "次の確認事項:",
     ...investability.nextActions.map((item) => `- ${item}`),
     "",
+    "## ポジションサイズ・制約",
+    "",
+    `- 扱い: ${position.label}`,
+    `- 調査上の初期上限: ${position.maxInitialWeight}`,
+    `- 理由: ${position.rationale}`,
+    ...position.constraints.map((item) => `- 制約: ${item}`),
+    "",
+    "## 未充足データ優先度",
+    "",
+    ...(investability.missingPriority.length
+      ? investability.missingPriority.slice(0, 8).map((item) => `- P${item.priority} ${item.name}: ${item.reason} / ${item.action}`)
+      : ["- 未充足カテゴリはありません。次はデータ鮮度と一次情報比率を点検してください。"]),
+    "",
     "## データ品質監査",
     ""
   ];
@@ -646,6 +927,13 @@ function buildMarkdown(data) {
   };
   addRows("強材料", grouped.positive, "明確な強材料は未入力です。");
   addRows("弱材料・反証条件", grouped.negative, "明確な弱材料は未入力です。");
+  lines.push("", "## 反証条件・決算後レビュー", "");
+  lines.push("撤回条件:");
+  refutation.conditions.forEach((item) => lines.push(`- ${item}`));
+  lines.push("", "再判定トリガー:");
+  refutation.reviewTriggers.forEach((item) => lines.push(`- ${item}`));
+  lines.push("", "レビュー記録:");
+  refutation.postReview.forEach((item) => lines.push(`- ${item}`));
   addRows("中立・確認待ち材料", grouped.neutral.concat(grouped.mixed, grouped.unknown), "中立・確認待ち材料は未入力です。");
   lines.push("", "## 未充足データ", "");
   if (cov.missing.length) {
@@ -670,9 +958,9 @@ function buildMarkdown(data) {
 function summarizeFromInput() {
   try {
     errorBox.textContent = "";
-    const data = parseData();
-    renderSummary(data);
-    return data;
+    const dataset = parseResearchInput();
+    renderSummary(dataset.primary, dataset.items);
+    return dataset.primary;
   } catch (error) {
     errorBox.textContent = error.message;
     throw error;
@@ -682,6 +970,35 @@ function summarizeFromInput() {
 function updateJson(data) {
   jsonInput.value = JSON.stringify(data, null, 2);
   renderSummary(data);
+}
+
+function sampleComparisonData() {
+  const first = JSON.parse(JSON.stringify(sampleData));
+  const second = JSON.parse(JSON.stringify(sampleData));
+  second.company = { ...second.company, ticker: "ALP", name: "Alpha Components Ltd.", sector: "Technology Hardware" };
+  second.thesis = "AIサーバー向け部品の増産と高付加価値品比率の改善により、利益率が上がる仮説を検証する。";
+  second.valuation.current_price = 31.2;
+  second.valuation.scenarios = [
+    { name: "Bear", probability: 0.3, revenue: 1320000000, ebitda_margin: 0.14, ev_ebitda: 7.5 },
+    { name: "Base", probability: 0.5, revenue: 1520000000, ebitda_margin: 0.19, ev_ebitda: 9.5 },
+    { name: "Bull", probability: 0.2, revenue: 1700000000, ebitda_margin: 0.22, ev_ebitda: 11.5 }
+  ];
+  second.evidence = second.evidence.concat([
+    { category: "ownership_flows", item: "空売り残高", value: "浮動株比 4.8%", interpretation: "需給はやや重いが、極端なショートスクイーズ依存ではない。", source: "Exchange short interest", source_url: "", date: "2026-06-24", confidence: "medium", direction: "neutral", materiality: "medium", source_type: "exchange" },
+    { category: "capital_allocation", item: "自社株買い", value: "発行済株式の2.0%を上限に取得枠設定", interpretation: "下値では需給支援になるが、成長投資との優先順位を確認する。", source: "Company IR", source_url: "", date: "2026-06-12", confidence: "medium", direction: "positive", materiality: "medium", source_type: "company_ir" },
+    { category: "governance_legal", item: "規制リスク", value: "主要輸出先の規制変更を監視", interpretation: "輸出規制が強まる場合、ベースシナリオを引き下げる。", source: "Regulatory review", source_url: "", date: "2026-06-10", confidence: "medium", direction: "negative", materiality: "medium", source_type: "regulator" }
+  ]);
+  const third = JSON.parse(JSON.stringify(sampleData));
+  third.company = { ...third.company, ticker: "BRKX", name: "Breakwater Retail Corp.", sector: "Consumer Discretionary" };
+  third.thesis = "在庫調整完了と値引き縮小で利益率が戻る仮説を検証する。";
+  third.valuation.current_price = 18.8;
+  third.valuation.scenarios = [
+    { name: "Bear", probability: 0.35, revenue: 1180000000, ebitda_margin: 0.1, ev_ebitda: 5.8 },
+    { name: "Base", probability: 0.45, revenue: 1260000000, ebitda_margin: 0.13, ev_ebitda: 6.5 },
+    { name: "Bull", probability: 0.2, revenue: 1340000000, ebitda_margin: 0.15, ev_ebitda: 7.2 }
+  ];
+  third.evidence = third.evidence.filter((row) => !["valuation", "ownership_flows", "capital_allocation", "governance_legal"].includes(row.category));
+  return [first, second, third];
 }
 
 function downloadText(filename, text) {
@@ -734,16 +1051,33 @@ evidenceForm.addEventListener("submit", (event) => {
 
 document.querySelector("#clearFormButton").addEventListener("click", clearEvidenceForm);
 document.querySelector("#loadSampleButton").addEventListener("click", () => updateJson(sampleData));
-document.querySelector("#formatButton").addEventListener("click", () => updateJson(summarizeFromInput()));
+document.querySelector("#loadComparisonButton").addEventListener("click", () => {
+  const items = sampleComparisonData();
+  jsonInput.value = JSON.stringify(items, null, 2);
+  renderSummary(items[0], items);
+});
+document.querySelector("#formatButton").addEventListener("click", () => {
+  try {
+    errorBox.textContent = "";
+    const dataset = parseResearchInput();
+    jsonInput.value = JSON.stringify(dataset.parsed, null, 2);
+    renderSummary(dataset.primary, dataset.items);
+  } catch (error) {
+    errorBox.textContent = error.message;
+    throw error;
+  }
+});
 document.querySelector("#summarizeButton").addEventListener("click", summarizeFromInput);
 document.querySelector("#downloadButton").addEventListener("click", () => {
-  const data = summarizeFromInput();
-  const ticker = data.company?.ticker || "research";
-  downloadText(`${ticker}_research_summary.md`, buildMarkdown(data));
+  const dataset = parseResearchInput();
+  renderSummary(dataset.primary, dataset.items);
+  const ticker = dataset.primary.company?.ticker || "research";
+  downloadText(`${ticker}_research_summary.md`, buildMarkdown(dataset.primary, dataset.items));
 });
 document.querySelector("#copyButton").addEventListener("click", async () => {
-  const data = summarizeFromInput();
-  await navigator.clipboard.writeText(buildMarkdown(data));
+  const dataset = parseResearchInput();
+  renderSummary(dataset.primary, dataset.items);
+  await navigator.clipboard.writeText(buildMarkdown(dataset.primary, dataset.items));
 });
 document.querySelector("#fileInput").addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
