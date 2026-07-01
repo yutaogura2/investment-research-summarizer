@@ -44,6 +44,15 @@ const sampleData = {
       { name: "Base", probability: 0.5, revenue: 1380000000, ebitda_margin: 0.18, ev_ebitda: 8.7 },
       { name: "Bull", probability: 0.25, revenue: 1490000000, ebitda_margin: 0.2, ev_ebitda: 10.5 }
     ]
+  },
+  portfolio: {
+    portfolio_value: 10000000,
+    current_weight: 0,
+    proposed_weight: 0.01,
+    sector_weight: 0.08,
+    max_position_weight: 0.04,
+    max_sector_weight: 0.25,
+    tags: ["Industrials", "Cyclical", "USD"]
   }
 };
 
@@ -51,6 +60,36 @@ const confidenceWeight = { high: 1.25, medium: 1, low: 0.65 };
 const directionWeight = { positive: 1, negative: -1, neutral: 0, mixed: 0, unknown: 0 };
 const materialityWeight = { high: 1.35, medium: 1, low: 0.7 };
 const sourceQualityWeight = { primary_filing: 1.35, exchange: 1.25, regulator: 1.25, company_ir: 1.15, market_data: 1.05, consensus: 1, sell_side: 0.95, manual_model: 0.85, news: 0.8, internal: 0.75, unknown: 0.55 };
+
+const storageKeys = {
+  watchlist: "irs_watchlist_v2",
+  decisionLog: "irs_decision_log_v2",
+  reviews: "irs_reviews_v2",
+  settings: "irs_settings_v2"
+};
+
+const defaultSettings = {
+  minCoveragePct: 85,
+  minPrimaryRatioPct: 40,
+  minExpectedReturnPct: 10,
+  minRiskReward: 1,
+  maxBearLossPct: -35,
+  maxPositionPct: 4,
+  maxSectorPct: 25,
+  staleDays: {
+    financials: 120,
+    market: 30,
+    valuation: 30,
+    estimates: 21,
+    ownership_flows: 30,
+    macro_rates_fx: 45,
+    sector_competition: 90,
+    capital_allocation: 180,
+    governance_legal: 180,
+    events_catalysts: 30,
+    risk_scenarios: 45
+  }
+};
 
 const jsonInput = document.querySelector("#jsonInput");
 const summaryOutput = document.querySelector("#summaryOutput");
@@ -61,6 +100,18 @@ const coverageLabel = document.querySelector("#coverageLabel");
 const catalogGrid = document.querySelector("#catalogGrid");
 const auditStrip = document.querySelector("#auditStrip");
 const evidenceForm = document.querySelector("#evidenceForm");
+const watchlistSelect = document.querySelector("#watchlistSelect");
+const storageStatus = document.querySelector("#storageStatus");
+const reviewNote = document.querySelector("#reviewNote");
+const settingsFields = {
+  coverage: document.querySelector("#settingCoverage"),
+  primaryRatio: document.querySelector("#settingPrimaryRatio"),
+  expectedReturn: document.querySelector("#settingExpectedReturn"),
+  bearLoss: document.querySelector("#settingBearLoss"),
+  riskReward: document.querySelector("#settingRiskReward"),
+  maxPosition: document.querySelector("#settingMaxPosition"),
+  maxSector: document.querySelector("#settingMaxSector")
+};
 
 function normalize(value) {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
@@ -95,6 +146,68 @@ function compactNumber(value, currency = "") {
     if (abs >= divisor) return `${sign}${currency}${(abs / divisor).toFixed(2)}${suffix}`;
   }
   return `${sign}${currency}${abs.toFixed(abs >= 10 ? 0 : 2)}`;
+}
+
+function readStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStorage(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function currentTicker(data) {
+  return String(data?.company?.ticker || data?.company?.name || "research").trim() || "research";
+}
+
+function statusMessage(message) {
+  if (storageStatus) storageStatus.textContent = `保存状態: ${message}`;
+}
+
+function loadSettings() {
+  const saved = readStorage(storageKeys.settings, {});
+  return {
+    ...defaultSettings,
+    ...saved,
+    staleDays: { ...defaultSettings.staleDays, ...(saved.staleDays || {}) }
+  };
+}
+
+function saveSettingsFromForm() {
+  const settings = loadSettings();
+  settings.minCoveragePct = Number(settingsFields.coverage.value || defaultSettings.minCoveragePct);
+  settings.minPrimaryRatioPct = Number(settingsFields.primaryRatio.value || defaultSettings.minPrimaryRatioPct);
+  settings.minExpectedReturnPct = Number(settingsFields.expectedReturn.value || defaultSettings.minExpectedReturnPct);
+  settings.maxBearLossPct = Number(settingsFields.bearLoss.value || defaultSettings.maxBearLossPct);
+  settings.minRiskReward = Number(settingsFields.riskReward.value || defaultSettings.minRiskReward);
+  settings.maxPositionPct = Number(settingsFields.maxPosition.value || defaultSettings.maxPositionPct);
+  settings.maxSectorPct = Number(settingsFields.maxSector.value || defaultSettings.maxSectorPct);
+  writeStorage(storageKeys.settings, settings);
+  statusMessage("しきい値を保存しました");
+  summarizeFromInput();
+}
+
+function populateSettingsForm() {
+  const settings = loadSettings();
+  settingsFields.coverage.value = settings.minCoveragePct;
+  settingsFields.primaryRatio.value = settings.minPrimaryRatioPct;
+  settingsFields.expectedReturn.value = settings.minExpectedReturnPct;
+  settingsFields.bearLoss.value = settings.maxBearLossPct;
+  settingsFields.riskReward.value = settings.minRiskReward;
+  settingsFields.maxPosition.value = settings.maxPositionPct;
+  settingsFields.maxSector.value = settings.maxSectorPct;
+}
+
+function resetSettings() {
+  writeStorage(storageKeys.settings, defaultSettings);
+  populateSettingsForm();
+  statusMessage("しきい値を初期化しました");
+  summarizeFromInput();
 }
 
 function parseData() {
@@ -365,6 +478,11 @@ function latestFinancialKpi(data) {
 }
 
 function evaluateInvestability(data, score, cov, issues, valuation) {
+  const settings = loadSettings();
+  const minPrimaryRatio = settings.minPrimaryRatioPct / 100;
+  const minCoverage = settings.minCoveragePct;
+  const minExpectedReturn = settings.minExpectedReturnPct / 100;
+  const maxBearLoss = settings.maxBearLossPct / 100;
   const evidence = data.evidence || [];
   const categories = new Set(evidence.map((row) => normalize(row.category)).filter(Boolean));
   const sourceTypes = evidence.map(inferSourceType);
@@ -418,8 +536,8 @@ function evaluateInvestability(data, score, cov, issues, valuation) {
   }
   investScore += Math.min(24, valuationPoints);
   investScore -= missingInstitutional.length * 4;
-  if (primaryRatio < 0.4) investScore -= (0.4 - primaryRatio) * 20;
-  if (cov.pct < 85) investScore -= (85 - cov.pct) * 0.3;
+  if (primaryRatio < minPrimaryRatio) investScore -= (minPrimaryRatio - primaryRatio) * 20;
+  if (cov.pct < minCoverage) investScore -= (minCoverage - cov.pct) * 0.3;
   investScore = Math.round(Math.max(0, Math.min(100, investScore)));
 
   const blockers = [];
@@ -432,11 +550,11 @@ function evaluateInvestability(data, score, cov, issues, valuation) {
   if (missingInstitutional.length) warnings.push(`機関投資家目線の重要カテゴリ不足: ${missingInstitutional.join("、")}`);
   if (score.counts.negative === 0) warnings.push("弱材料・反証材料が不足しています。");
   if (institutionalRatio < 0.6) warnings.push("一次情報・市場データ・コンセンサス等の比率が低い状態です。");
-  if (primaryRatio < 0.4) warnings.push("一次情報・取引所・規制当局データの比率が低く、検証可能性が不足しています。");
-  if (cov.pct < 85) warnings.push("情報カバレッジが85%未満です。投資候補化するには未充足カテゴリを埋めてください。");
-  if (expectedReturn !== null && expectedReturn < 0.1) warnings.push("期待リターンが低く、リスクに対する余地が薄い可能性があります。");
-  if (bearReturn !== null && bearReturn < -0.35) warnings.push("ベアケース下落余地が大きく、ポジションサイズ制約が必要です。");
-  if (riskReward !== null && riskReward < 1) warnings.push("期待リターンがベアケース損失を十分に上回っていません。");
+  if (primaryRatio < minPrimaryRatio) warnings.push(`一次情報・取引所・規制当局データ比率がしきい値 ${settings.minPrimaryRatioPct}% を下回っています。`);
+  if (cov.pct < minCoverage) warnings.push(`情報カバレッジがしきい値 ${settings.minCoveragePct}% を下回っています。`);
+  if (expectedReturn !== null && expectedReturn < minExpectedReturn) warnings.push(`期待リターンがしきい値 ${settings.minExpectedReturnPct}% を下回っています。`);
+  if (bearReturn !== null && bearReturn < maxBearLoss) warnings.push(`ベアケース下落率が許容しきい値 ${settings.maxBearLossPct}% を超えています。`);
+  if (riskReward !== null && riskReward < settings.minRiskReward) warnings.push(`期待リターン/ベア損失がしきい値 ${settings.minRiskReward.toFixed(1)}x を下回っています。`);
   if (cov.pct < 75) nextActions.push("不足カテゴリを埋め、情報カバレッジを75%以上に上げる。");
   missingPriority.slice(0, 3).forEach((item) => nextActions.push(item.action));
   if (!nextActions.length) nextActions.push("主要反証条件を次回決算・イベントで再検証する。");
@@ -487,6 +605,10 @@ function decisionBrief(investability) {
 }
 
 function estimatePositionSize(investability, cov) {
+  const settings = loadSettings();
+  const minPrimaryRatio = settings.minPrimaryRatioPct / 100;
+  const minExpectedReturn = settings.minExpectedReturnPct / 100;
+  const maxBearLoss = settings.maxBearLossPct / 100;
   const constraints = [];
   if (investability.blockers?.length) {
     return {
@@ -496,11 +618,11 @@ function estimatePositionSize(investability, cov) {
       constraints: investability.blockers.slice(0, 3)
     };
   }
-  if (cov.pct < 85) constraints.push("情報カバレッジ85%未満");
-  if (investability.primaryRatio < 0.4) constraints.push("一次情報・取引所・規制当局ソース比率40%未満");
-  if (investability.expectedReturn !== null && investability.expectedReturn < 0.1) constraints.push("期待リターン10%未満");
-  if (investability.bearReturn !== null && investability.bearReturn < -0.35) constraints.push("ベアケース下落35%超");
-  if (investability.riskReward !== null && investability.riskReward < 1) constraints.push("期待リターン/ベア損失が1.0x未満");
+  if (cov.pct < settings.minCoveragePct) constraints.push(`情報カバレッジ${settings.minCoveragePct}%未満`);
+  if (investability.primaryRatio < minPrimaryRatio) constraints.push(`一次情報・取引所・規制当局ソース比率${settings.minPrimaryRatioPct}%未満`);
+  if (investability.expectedReturn !== null && investability.expectedReturn < minExpectedReturn) constraints.push(`期待リターン${settings.minExpectedReturnPct}%未満`);
+  if (investability.bearReturn !== null && investability.bearReturn < maxBearLoss) constraints.push(`ベアケース下落${Math.abs(settings.maxBearLossPct)}%超`);
+  if (investability.riskReward !== null && investability.riskReward < settings.minRiskReward) constraints.push(`期待リターン/ベア損失が${settings.minRiskReward.toFixed(1)}x未満`);
 
   if (investability.readiness === "投資候補" && investability.score >= 85 && !constraints.length) {
     return {
@@ -558,6 +680,199 @@ function refutationPlan(data, valuation, investability) {
   if (!valuation?.rows?.length) postReview.unshift("現在価格を含むシナリオを作成してから、決算後レビューを実施する。");
 
   return { conditions, reviewTriggers, postReview };
+}
+
+function ageDays(dateText, asOfText) {
+  const date = Date.parse(dateText || "");
+  const asOf = Date.parse(asOfText || new Date().toISOString().slice(0, 10));
+  if (!Number.isFinite(date) || !Number.isFinite(asOf)) return null;
+  return Math.max(0, Math.round((asOf - date) / 86400000));
+}
+
+function dataFreshness(data, settings = loadSettings()) {
+  const evidence = Array.isArray(data.evidence) ? data.evidence : [];
+  const asOf = data.company?.as_of || new Date().toISOString().slice(0, 10);
+  const rows = catalog.map((category) => {
+    const categoryRows = evidence.filter((row) => normalize(row.category) === category.id);
+    const latest = categoryRows
+      .map((row) => row.date)
+      .filter(Boolean)
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+    const age = latest ? ageDays(latest, asOf) : null;
+    const limit = Number(settings.staleDays?.[category.id] ?? 90);
+    let status = "未入力";
+    if (age !== null) status = age > limit ? "古い" : "OK";
+    return { id: category.id, name: category.name, latest, age, limit, status, count: categoryRows.length };
+  });
+  return {
+    asOf,
+    rows,
+    staleCount: rows.filter((row) => row.status === "古い").length,
+    missingCount: rows.filter((row) => row.status === "未入力").length
+  };
+}
+
+function valuationSensitivity(data, valuation) {
+  if (!valuation?.rows?.length || !data.valuation) return [];
+  const base =
+    valuation.rows.find((row) => normalize(row.name).includes("base")) ||
+    valuation.rows[Math.floor(valuation.rows.length / 2)] ||
+    valuation.rows[0];
+  const shares = Number(data.valuation.shares_outstanding || 0);
+  const netDebt = Number(data.valuation.net_debt || 0);
+  const currentPrice = Number(data.valuation.current_price || 0);
+  if (!shares || !base) return [];
+  const shocks = [
+    { label: "Downside", revenueDelta: -0.1, marginDelta: -0.02, multipleDelta: -1 },
+    { label: "Revenue -10%", revenueDelta: -0.1, marginDelta: 0, multipleDelta: 0 },
+    { label: "Margin -2pt", revenueDelta: 0, marginDelta: -0.02, multipleDelta: 0 },
+    { label: "Multiple -1x", revenueDelta: 0, marginDelta: 0, multipleDelta: -1 },
+    { label: "Base", revenueDelta: 0, marginDelta: 0, multipleDelta: 0 },
+    { label: "Multiple +1x", revenueDelta: 0, marginDelta: 0, multipleDelta: 1 },
+    { label: "Margin +2pt", revenueDelta: 0, marginDelta: 0.02, multipleDelta: 0 },
+    { label: "Revenue +10%", revenueDelta: 0.1, marginDelta: 0, multipleDelta: 0 },
+    { label: "Upside", revenueDelta: 0.1, marginDelta: 0.02, multipleDelta: 1 }
+  ];
+  return shocks.map((shock) => {
+    const revenue = base.revenue * (1 + shock.revenueDelta);
+    const ebitdaMargin = Math.max(0, base.ebitdaMargin + shock.marginDelta);
+    const evEbitda = Math.max(0, base.evEbitda + shock.multipleDelta);
+    const price = ((revenue * ebitdaMargin * evEbitda) - netDebt) / shares;
+    const returnPct = currentPrice > 0 ? price / currentPrice - 1 : null;
+    return { ...shock, revenue, ebitdaMargin, evEbitda, price, returnPct };
+  });
+}
+
+function portfolioImpact(data, investability, position, settings = loadSettings()) {
+  const portfolio = data.portfolio || {};
+  const portfolioValue = Number(portfolio.portfolio_value || portfolio.portfolioValue || 0);
+  const currentWeight = Number(portfolio.current_weight ?? 0);
+  const proposedWeight = Number(portfolio.proposed_weight ?? settings.maxPositionPct / 100);
+  const sectorWeight = Number(portfolio.sector_weight ?? 0);
+  const maxPositionWeight = Number(portfolio.max_position_weight ?? settings.maxPositionPct / 100);
+  const maxSectorWeight = Number(portfolio.max_sector_weight ?? settings.maxSectorPct / 100);
+  const totalWeight = currentWeight + proposedWeight;
+  const sectorAfter = sectorWeight + proposedWeight;
+  const downsideContribution = investability.bearReturn === null ? null : proposedWeight * Math.abs(investability.bearReturn);
+  const constraints = [];
+  if (totalWeight > maxPositionWeight) constraints.push(`1銘柄上限${pct(maxPositionWeight)}を超過`);
+  if (sectorAfter > maxSectorWeight) constraints.push(`セクター上限${pct(maxSectorWeight)}を超過`);
+  if (position.maxInitialWeight === "0%") constraints.push("投資判断ゲート上は新規投資不可");
+  if (investability.blockers?.length) constraints.push("未解消ブロッカーあり");
+  return {
+    portfolioValue,
+    currentWeight,
+    proposedWeight,
+    proposedValue: portfolioValue ? portfolioValue * proposedWeight : null,
+    sectorWeight,
+    totalWeight,
+    sectorAfter,
+    maxPositionWeight,
+    maxSectorWeight,
+    downsideContribution,
+    tags: Array.isArray(portfolio.tags) ? portfolio.tags : [],
+    constraints
+  };
+}
+
+function storedDecisions(ticker) {
+  return readStorage(storageKeys.decisionLog, [])
+    .filter((row) => row.ticker === ticker)
+    .slice(-5)
+    .reverse();
+}
+
+function storedReviews(ticker) {
+  return readStorage(storageKeys.reviews, [])
+    .filter((row) => row.ticker === ticker)
+    .slice(-5)
+    .reverse();
+}
+
+function renderFreshness(freshness) {
+  const rows = freshness.rows
+    .map((row) => `
+      <tr>
+        <td>${escapeHtml(row.name)}</td>
+        <td><span class="tag ${row.status === "OK" ? "positive" : row.status === "古い" ? "negative" : "neutral"}">${escapeHtml(row.status)}</span></td>
+        <td>${escapeHtml(row.latest || "-")}</td>
+        <td>${row.age === null ? "-" : `${row.age}日`}</td>
+        <td>${row.limit}日</td>
+        <td>${row.count}</td>
+      </tr>
+    `)
+    .join("");
+  return `
+    <section class="summary-block">
+      <h3>データ鮮度ダッシュボード</h3>
+      <div class="metrics">
+        <div class="metric"><span>基準日</span><strong>${escapeHtml(freshness.asOf)}</strong></div>
+        <div class="metric"><span>期限超過</span><strong>${freshness.staleCount}</strong></div>
+        <div class="metric"><span>未入力</span><strong>${freshness.missingCount}</strong></div>
+      </div>
+      <div class="table-scroll">
+        <table class="kpi-table freshness-table">
+          <thead><tr><th>カテゴリ</th><th>状態</th><th>最新日</th><th>経過</th><th>基準</th><th>件数</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderSensitivity(sensitivity, currency) {
+  if (!sensitivity.length) return "";
+  return `
+    <section class="summary-block">
+      <h3>バリュエーション感応度</h3>
+      <div class="table-scroll">
+        <table class="kpi-table sensitivity-table">
+          <thead><tr><th>ケース</th><th>売上</th><th>EBITDA率</th><th>倍率</th><th>株価</th><th>現値比</th></tr></thead>
+          <tbody>${sensitivity.map((row) => `<tr><td>${escapeHtml(row.label)}</td><td>${compactNumber(row.revenue, currency)}</td><td>${pct(row.ebitdaMargin)}</td><td>${row.evEbitda.toFixed(1)}x</td><td>${escapeHtml(currency)}${row.price.toFixed(2)}</td><td>${pct(row.returnPct)}</td></tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderPortfolio(impact, company) {
+  const sector = company.sector || "sector";
+  return `
+    <section class="summary-block">
+      <h3>ポートフォリオ影響チェック</h3>
+      <div class="metrics">
+        <div class="metric"><span>追加比率</span><strong>${pct(impact.proposedWeight)}</strong></div>
+        <div class="metric"><span>銘柄合計</span><strong>${pct(impact.totalWeight)}</strong></div>
+        <div class="metric"><span>${escapeHtml(sector)}合計</span><strong>${pct(impact.sectorAfter)}</strong></div>
+      </div>
+      <ul class="summary-list">
+        <li>想定投資額: ${impact.proposedValue === null ? "-" : compactNumber(impact.proposedValue, dataCurrency(company))}</li>
+        <li>ベアケースのポートフォリオ寄与損失: ${impact.downsideContribution === null ? "-" : pct(impact.downsideContribution)}</li>
+        <li>制約: ${(impact.constraints.length ? impact.constraints : ["上限超過なし"]).map(escapeHtml).join(" / ")}</li>
+        ${impact.tags.length ? `<li>タグ: ${impact.tags.map(escapeHtml).join(" / ")}</li>` : ""}
+      </ul>
+    </section>
+  `;
+}
+
+function renderStoredHistory(ticker) {
+  const decisions = storedDecisions(ticker);
+  const reviews = storedReviews(ticker);
+  if (!decisions.length && !reviews.length) return "";
+  const decisionRows = decisions.map((row) => `<li><strong>${escapeHtml(row.date)}</strong>: ${escapeHtml(row.readiness)} / score ${escapeHtml(row.score)} / ${escapeHtml(row.position)} <span class="muted">${escapeHtml(row.nextAction || "")}</span></li>`).join("");
+  const reviewRows = reviews.map((row) => `<li><strong>${escapeHtml(row.date)}</strong>: ${escapeHtml(row.note)}</li>`).join("");
+  return `
+    <section class="summary-block">
+      <h3>保存済み判断ログ・レビュー</h3>
+      ${decisions.length ? `<h3>判断ログ</h3><ul class="summary-list">${decisionRows}</ul>` : ""}
+      ${reviews.length ? `<h3>決算後レビュー</h3><ul class="summary-list">${reviewRows}</ul>` : ""}
+    </section>
+  `;
+}
+
+function dataCurrency(company) {
+  if (!company?.currency) return "";
+  return company.currency === "USD" ? "$" : `${company.currency} `;
 }
 
 function analysisSnapshot(data) {
@@ -635,7 +950,11 @@ function renderSummary(data, comparisonItems = [data]) {
   const brief = decisionBrief(investability);
   const position = estimatePositionSize(investability, cov);
   const refutation = refutationPlan(data, valuation, investability);
+  const freshness = dataFreshness(data);
+  const sensitivity = valuationSensitivity(data, valuation);
+  const portfolio = portfolioImpact(data, investability, position);
   const comparisonHtml = renderComparison(comparisonItems);
+  const historyHtml = renderStoredHistory(currentTicker(data));
 
   scoreBox.textContent = score.score;
   asOfLabel.textContent = `基準日: ${company.as_of || "-"}`;
@@ -737,6 +1056,9 @@ function renderSummary(data, comparisonItems = [data]) {
       </section>
     `
     : "";
+  const freshnessHtml = renderFreshness(freshness);
+  const sensitivityHtml = renderSensitivity(sensitivity, valuation?.currency || company.currency || "");
+  const portfolioHtml = renderPortfolio(portfolio, company);
 
   const tableRows = evidence.map((row) => {
     const category = catalog.find((item) => item.id === normalize(row.category));
@@ -783,6 +1105,7 @@ function renderSummary(data, comparisonItems = [data]) {
     </section>
     <p class="notice">この出力は投資調査メモであり、売買推奨ではありません。一次情報、価格、リスク許容度を別途確認してください。</p>
     ${comparisonHtml}
+    ${historyHtml}
     <div class="metrics">
       <div class="metric"><span>対象</span><strong>${escapeHtml(label)}</strong></div>
       <div class="metric"><span>証拠スコア</span><strong>${score.score}/100</strong></div>
@@ -798,7 +1121,9 @@ function renderSummary(data, comparisonItems = [data]) {
     </section>
     ${investabilityHtml}
     ${positionHtml}
+    ${portfolioHtml}
     <section class="summary-block"><h3>データ品質監査</h3><ul class="summary-list">${issueHtml}</ul></section>
+    ${freshnessHtml}
     <section class="summary-block"><h3>強材料</h3><ul class="summary-list">${renderBullets(grouped.positive, "明確な強材料は未入力です。", asOf)}</ul></section>
     <section class="summary-block"><h3>弱材料・反証条件</h3><ul class="summary-list">${renderBullets(grouped.negative, "明確な弱材料は未入力です。", asOf)}</ul></section>
     ${refutationHtml}
@@ -807,6 +1132,7 @@ function renderSummary(data, comparisonItems = [data]) {
     <section class="summary-block"><h3>未充足データ優先度</h3><ul class="summary-list">${missingPriorityHtml}</ul></section>
     ${kpiHtml}
     ${valuationHtml}
+    ${sensitivityHtml}
     <section class="summary-block">
       <h3>エビデンス台帳</h3>
       <table class="evidence-table">
@@ -842,6 +1168,9 @@ function buildMarkdown(data, comparisonItems = [data]) {
   const brief = decisionBrief(investability);
   const position = estimatePositionSize(investability, cov);
   const refutation = refutationPlan(data, valuation, investability);
+  const freshness = dataFreshness(data);
+  const sensitivity = valuationSensitivity(data, valuation);
+  const portfolio = portfolioImpact(data, investability, position);
   const label = [company.ticker, company.name].filter(Boolean).join(" / ") || "未設定";
   const lines = [
     `# 投資判断用リサーチサマリ: ${label}`,
@@ -899,6 +1228,23 @@ function buildMarkdown(data, comparisonItems = [data]) {
     `- 理由: ${position.rationale}`,
     ...position.constraints.map((item) => `- 制約: ${item}`),
     "",
+    "## ポートフォリオ影響チェック",
+    "",
+    `- 追加比率: ${pct(portfolio.proposedWeight)}`,
+    `- 銘柄合計: ${pct(portfolio.totalWeight)} / 上限 ${pct(portfolio.maxPositionWeight)}`,
+    `- セクター合計: ${pct(portfolio.sectorAfter)} / 上限 ${pct(portfolio.maxSectorWeight)}`,
+    `- 想定投資額: ${portfolio.proposedValue === null ? "-" : compactNumber(portfolio.proposedValue, dataCurrency(company))}`,
+    `- ベアケース寄与損失: ${portfolio.downsideContribution === null ? "-" : pct(portfolio.downsideContribution)}`,
+    ...(portfolio.constraints.length ? portfolio.constraints.map((item) => `- 制約: ${item}`) : ["- 制約: 上限超過なし"]),
+    "",
+    "## データ鮮度ダッシュボード",
+    "",
+    `- 基準日: ${freshness.asOf}`,
+    `- 期限超過: ${freshness.staleCount} / 未入力: ${freshness.missingCount}`,
+    "|カテゴリ|状態|最新日|経過|基準|件数|",
+    "|---|---|---|---:|---:|---:|",
+    ...freshness.rows.map((row) => `|${row.name}|${row.status}|${row.latest || "-"}|${row.age === null ? "-" : `${row.age}日`}|${row.limit}日|${row.count}|`),
+    "",
     "## 未充足データ優先度",
     "",
     ...(investability.missingPriority.length
@@ -943,6 +1289,14 @@ function buildMarkdown(data, comparisonItems = [data]) {
     });
   } else {
     lines.push("- 全カテゴリに少なくとも1件の証拠があります。");
+  }
+  if (sensitivity.length) {
+    lines.push("", "## バリュエーション感応度", "");
+    lines.push("|ケース|売上|EBITDA率|倍率|株価|現値比|");
+    lines.push("|---|---:|---:|---:|---:|---:|");
+    sensitivity.forEach((row) => {
+      lines.push(`|${row.label}|${compactNumber(row.revenue, valuation?.currency || company.currency || "")}|${pct(row.ebitdaMargin)}|${row.evEbitda.toFixed(1)}x|${valuation?.currency || company.currency || ""}${row.price.toFixed(2)}|${pct(row.returnPct)}|`);
+    });
   }
   lines.push("", "## エビデンス台帳", "");
   lines.push("|カテゴリ|項目|値|解釈|出所|日付|確信度|重要度|出所種別|方向|重み|");
@@ -1028,6 +1382,214 @@ function clearEvidenceForm() {
   document.querySelector("#fieldSourceType").value = "internal";
 }
 
+function renderWatchlistOptions() {
+  const rows = readStorage(storageKeys.watchlist, []);
+  if (!rows.length) {
+    watchlistSelect.innerHTML = '<option value="">保存なし</option>';
+    return;
+  }
+  watchlistSelect.innerHTML = rows
+    .slice()
+    .reverse()
+    .map((row) => `<option value="${escapeHtml(row.id)}">${escapeHtml(row.ticker)} ${escapeHtml(row.name || "")} / ${escapeHtml(row.date)}</option>`)
+    .join("");
+}
+
+function saveWatchlist() {
+  const dataset = parseResearchInput();
+  const ticker = currentTicker(dataset.primary);
+  const id = `${ticker}-${new Date().toISOString()}`;
+  const rows = readStorage(storageKeys.watchlist, []);
+  rows.push({
+    id,
+    ticker,
+    name: dataset.primary.company?.name || "",
+    date: new Date().toISOString().slice(0, 16).replace("T", " "),
+    payload: dataset.parsed
+  });
+  writeStorage(storageKeys.watchlist, rows.slice(-50));
+  renderWatchlistOptions();
+  watchlistSelect.value = id;
+  statusMessage(`${ticker}をウォッチリスト保存`);
+}
+
+function loadWatchlist() {
+  const id = watchlistSelect.value;
+  const rows = readStorage(storageKeys.watchlist, []);
+  const row = rows.find((item) => item.id === id);
+  if (!row) return;
+  jsonInput.value = JSON.stringify(row.payload, null, 2);
+  summarizeFromInput();
+  statusMessage(`${row.ticker}を読み込み`);
+}
+
+function deleteWatchlist() {
+  const id = watchlistSelect.value;
+  if (!id) return;
+  const rows = readStorage(storageKeys.watchlist, []).filter((row) => row.id !== id);
+  writeStorage(storageKeys.watchlist, rows);
+  renderWatchlistOptions();
+  statusMessage("ウォッチリストから削除");
+}
+
+function logDecision() {
+  const data = summarizeFromInput();
+  const snapshot = analysisSnapshot(data);
+  const row = {
+    ticker: currentTicker(data),
+    name: data.company?.name || "",
+    date: new Date().toISOString().slice(0, 16).replace("T", " "),
+    readiness: snapshot.investability.readiness,
+    score: snapshot.investability.score,
+    evidenceScore: snapshot.score.score,
+    coverage: snapshot.cov.pct,
+    position: snapshot.position.label,
+    expectedReturn: snapshot.investability.expectedReturn,
+    bearReturn: snapshot.investability.bearReturn,
+    nextAction: snapshot.investability.nextActions?.[0] || ""
+  };
+  const rows = readStorage(storageKeys.decisionLog, []);
+  rows.push(row);
+  writeStorage(storageKeys.decisionLog, rows.slice(-200));
+  statusMessage(`${row.ticker}の判断ログを記録`);
+  summarizeFromInput();
+}
+
+function saveReview() {
+  const note = reviewNote.value.trim();
+  if (!note) {
+    statusMessage("レビュー欄が空です");
+    return;
+  }
+  const data = summarizeFromInput();
+  const row = {
+    ticker: currentTicker(data),
+    name: data.company?.name || "",
+    date: new Date().toISOString().slice(0, 16).replace("T", " "),
+    note
+  };
+  const rows = readStorage(storageKeys.reviews, []);
+  rows.push(row);
+  writeStorage(storageKeys.reviews, rows.slice(-200));
+  reviewNote.value = "";
+  statusMessage(`${row.ticker}のレビューを保存`);
+  summarizeFromInput();
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  for (let idx = 0; idx < text.length; idx += 1) {
+    const char = text[idx];
+    const next = text[idx + 1];
+    if (quoted) {
+      if (char === '"' && next === '"') {
+        cell += '"';
+        idx += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        cell += char;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (char === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else if (char !== "\r") {
+      cell += char;
+    }
+  }
+  row.push(cell);
+  rows.push(row);
+  const headers = (rows.shift() || []).map((header) => normalize(String(header || "").replace(/^\uFEFF/, "")));
+  return rows
+    .filter((values) => values.some((value) => String(value || "").trim()))
+    .map((values) => Object.fromEntries(headers.map((header, idx) => [header, String(values[idx] || "").trim()])));
+}
+
+function evidenceRowsFromCsv(rows) {
+  return rows.map((row) => ({
+    category: row.category || "",
+    item: row.item || "",
+    value: row.value || "",
+    interpretation: row.interpretation || "",
+    source: row.source || "",
+    source_url: row.source_url || "",
+    date: row.date || new Date().toISOString().slice(0, 10),
+    confidence: row.confidence || "medium",
+    direction: row.direction || "neutral",
+    materiality: row.materiality || "medium",
+    source_type: row.source_type || "unknown"
+  }));
+}
+
+function applyCsvMetadata(data, rows) {
+  const first = rows.find((row) => Object.values(row).some(Boolean)) || {};
+  data.company = {
+    ...(data.company || {}),
+    ticker: first.company_ticker || first.ticker || data.company?.ticker || "",
+    name: first.company_name || first.name || data.company?.name || "",
+    market: first.market || data.company?.market || "",
+    sector: first.sector || data.company?.sector || "",
+    currency: first.currency || data.company?.currency || "",
+    as_of: first.as_of || data.company?.as_of || new Date().toISOString().slice(0, 10)
+  };
+  if (first.thesis) data.thesis = first.thesis;
+  const portfolioKeys = ["portfolio_value", "current_weight", "proposed_weight", "sector_weight", "max_position_weight", "max_sector_weight"];
+  const portfolioPatch = {};
+  portfolioKeys.forEach((key) => {
+    if (first[key] !== undefined && first[key] !== "") portfolioPatch[key] = Number(first[key]);
+  });
+  if (Object.keys(portfolioPatch).length) data.portfolio = { ...(data.portfolio || {}), ...portfolioPatch };
+  return data;
+}
+
+async function importCsvFile(file) {
+  const rows = parseCsv(await file.text());
+  if (!rows.length) {
+    statusMessage("CSVに有効行がありません");
+    return;
+  }
+  const dataset = parseResearchInput();
+  const grouped = {};
+  let activeTicker = currentTicker(dataset.primary);
+  rows.forEach((row) => {
+    const explicitTicker = row.company_ticker || row.ticker;
+    if (explicitTicker) activeTicker = explicitTicker;
+    const ticker = explicitTicker || activeTicker;
+    grouped[ticker] = grouped[ticker] || [];
+    grouped[ticker].push(row);
+  });
+  const tickers = Object.keys(grouped);
+  if (tickers.length === 1) {
+    const data = JSON.parse(JSON.stringify(dataset.primary));
+    applyCsvMetadata(data, grouped[tickers[0]]);
+    data.evidence = Array.isArray(data.evidence) ? data.evidence : [];
+    data.evidence.push(...evidenceRowsFromCsv(grouped[tickers[0]]));
+    updateJson(data);
+    statusMessage(`CSV ${rows.length}行を取り込み`);
+    return;
+  }
+  const companies = tickers.map((ticker) => {
+    const data = JSON.parse(JSON.stringify(dataset.primary));
+    data.evidence = [];
+    applyCsvMetadata(data, grouped[ticker]);
+    data.evidence.push(...evidenceRowsFromCsv(grouped[ticker]));
+    return data;
+  });
+  jsonInput.value = JSON.stringify({ companies }, null, 2);
+  renderSummary(companies[0], companies);
+  statusMessage(`CSV ${rows.length}行 / ${tickers.length}銘柄を取り込み`);
+}
+
 evidenceForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const data = summarizeFromInput();
@@ -1056,6 +1618,13 @@ document.querySelector("#loadComparisonButton").addEventListener("click", () => 
   jsonInput.value = JSON.stringify(items, null, 2);
   renderSummary(items[0], items);
 });
+document.querySelector("#saveWatchButton").addEventListener("click", saveWatchlist);
+document.querySelector("#loadWatchButton").addEventListener("click", loadWatchlist);
+document.querySelector("#deleteWatchButton").addEventListener("click", deleteWatchlist);
+document.querySelector("#logDecisionButton").addEventListener("click", logDecision);
+document.querySelector("#saveReviewButton").addEventListener("click", saveReview);
+document.querySelector("#saveSettingsButton").addEventListener("click", saveSettingsFromForm);
+document.querySelector("#resetSettingsButton").addEventListener("click", resetSettings);
 document.querySelector("#formatButton").addEventListener("click", () => {
   try {
     errorBox.textContent = "";
@@ -1085,8 +1654,19 @@ document.querySelector("#fileInput").addEventListener("change", async (event) =>
   jsonInput.value = await file.text();
   summarizeFromInput();
 });
+document.querySelector("#csvInput").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    await importCsvFile(file);
+  } finally {
+    event.target.value = "";
+  }
+});
 
 populateForm();
+populateSettingsForm();
+renderWatchlistOptions();
 jsonInput.value = JSON.stringify(sampleData, null, 2);
 renderCatalog([]);
 summarizeFromInput();

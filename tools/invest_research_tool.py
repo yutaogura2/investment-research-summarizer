@@ -111,6 +111,20 @@ SEC_FACT_SPECS = {
 }
 
 CSV_COLUMNS = [
+    "company_ticker",
+    "ticker",
+    "company_name",
+    "market",
+    "sector",
+    "currency",
+    "as_of",
+    "thesis",
+    "portfolio_value",
+    "current_weight",
+    "proposed_weight",
+    "sector_weight",
+    "max_position_weight",
+    "max_sector_weight",
     "category",
     "item",
     "value",
@@ -123,6 +137,46 @@ CSV_COLUMNS = [
     "materiality",
     "source_type",
 ]
+
+CSV_EVIDENCE_COLUMNS = [
+    "category",
+    "item",
+    "value",
+    "interpretation",
+    "source",
+    "source_url",
+    "date",
+    "confidence",
+    "direction",
+    "materiality",
+    "source_type",
+]
+
+CSV_METADATA_COLUMNS = [column for column in CSV_COLUMNS if column not in CSV_EVIDENCE_COLUMNS]
+
+DEFAULT_THRESHOLDS = {
+    "min_coverage_pct": 85,
+    "min_primary_ratio": 0.40,
+    "min_expected_return": 0.10,
+    "max_bear_loss": -0.35,
+    "min_risk_reward": 1.0,
+    "max_position_weight": 0.04,
+    "max_sector_weight": 0.25,
+}
+
+STALE_DAYS = {
+    "financials": 120,
+    "market": 30,
+    "valuation": 30,
+    "estimates": 21,
+    "ownership_flows": 30,
+    "macro_rates_fx": 45,
+    "sector_competition": 90,
+    "capital_allocation": 180,
+    "governance_legal": 180,
+    "events_catalysts": 30,
+    "risk_scenarios": 45,
+}
 
 MISSING_PRIORITY_CONFIG = {
     "valuation": {
@@ -319,6 +373,15 @@ def empty_template(catalog: dict[str, Any]) -> dict[str, Any]:
             for category in catalog.get("categories", [])
         ],
         "valuation": scenario_template()["valuation"],
+        "portfolio": {
+            "portfolio_value": 0,
+            "current_weight": 0,
+            "proposed_weight": DEFAULT_THRESHOLDS["max_position_weight"],
+            "sector_weight": 0,
+            "max_position_weight": DEFAULT_THRESHOLDS["max_position_weight"],
+            "max_sector_weight": DEFAULT_THRESHOLDS["max_sector_weight"],
+            "tags": [],
+        },
     }
 
 
@@ -681,10 +744,10 @@ def evaluate_investability(
                 valuation_points += 3
     score += min(24, valuation_points)
     score -= len(missing_institutional) * 4
-    if primary_ratio < 0.40:
-        score -= (0.40 - primary_ratio) * 20
-    if coverage["coverage_pct"] < 85:
-        score -= (85 - coverage["coverage_pct"]) * 0.30
+    if primary_ratio < DEFAULT_THRESHOLDS["min_primary_ratio"]:
+        score -= (DEFAULT_THRESHOLDS["min_primary_ratio"] - primary_ratio) * 20
+    if coverage["coverage_pct"] < DEFAULT_THRESHOLDS["min_coverage_pct"]:
+        score -= (DEFAULT_THRESHOLDS["min_coverage_pct"] - coverage["coverage_pct"]) * 0.30
 
     blockers: list[str] = []
     warnings: list[str] = []
@@ -703,15 +766,15 @@ def evaluate_investability(
         warnings.append("弱材料・反証材料が不足しています。意図的な反対仮説の検証が必要です。")
     if institutional_ratio < 0.6:
         warnings.append("一次情報・市場データ・コンセンサス等の比率が低く、手入力依存が高い状態です。")
-    if primary_ratio < 0.4:
+    if primary_ratio < DEFAULT_THRESHOLDS["min_primary_ratio"]:
         warnings.append("一次情報・取引所・規制当局データの比率が低く、検証可能性が不足しています。")
-    if coverage["coverage_pct"] < 85:
-        warnings.append("情報カバレッジが85%未満です。投資候補化するには未充足カテゴリを埋めてください。")
-    if expected_return is not None and expected_return < 0.10:
+    if coverage["coverage_pct"] < DEFAULT_THRESHOLDS["min_coverage_pct"]:
+        warnings.append(f"情報カバレッジが{DEFAULT_THRESHOLDS['min_coverage_pct']}%未満です。投資候補化するには未充足カテゴリを埋めてください。")
+    if expected_return is not None and expected_return < DEFAULT_THRESHOLDS["min_expected_return"]:
         warnings.append("期待リターンが低く、リスクに対する余地が薄い可能性があります。")
-    if bear_return is not None and bear_return < -0.35:
+    if bear_return is not None and bear_return < DEFAULT_THRESHOLDS["max_bear_loss"]:
         warnings.append("ベアケース下落余地が大きく、ポジションサイズ制約が必要です。")
-    if risk_reward is not None and risk_reward < 1.0:
+    if risk_reward is not None and risk_reward < DEFAULT_THRESHOLDS["min_risk_reward"]:
         warnings.append("期待リターンがベアケース損失を十分に上回っていません。")
     if coverage["coverage_pct"] < 75:
         next_actions.append("不足カテゴリを埋め、情報カバレッジを75%以上に上げる。")
@@ -797,19 +860,19 @@ def estimate_position_size(investability: dict[str, Any], coverage: dict[str, An
             "rationale": "調査ブロッカーが残っているため、投資候補として扱わない。",
             "constraints": blockers[:3],
         }
-    if coverage.get("coverage_pct", 0) < 85:
-        constraints.append("情報カバレッジ85%未満")
-    if investability.get("primary_source_ratio", 0) < 0.4:
-        constraints.append("一次情報・取引所・規制当局ソース比率40%未満")
+    if coverage.get("coverage_pct", 0) < DEFAULT_THRESHOLDS["min_coverage_pct"]:
+        constraints.append(f"情報カバレッジ{DEFAULT_THRESHOLDS['min_coverage_pct']}%未満")
+    if investability.get("primary_source_ratio", 0) < DEFAULT_THRESHOLDS["min_primary_ratio"]:
+        constraints.append(f"一次情報・取引所・規制当局ソース比率{DEFAULT_THRESHOLDS['min_primary_ratio']:.0%}未満")
     expected_return = investability.get("expected_return")
     bear_return = investability.get("bear_return")
     risk_reward = investability.get("risk_reward")
-    if expected_return is not None and expected_return < 0.10:
-        constraints.append("期待リターン10%未満")
-    if bear_return is not None and bear_return < -0.35:
-        constraints.append("ベアケース下落35%超")
-    if risk_reward is not None and risk_reward < 1.0:
-        constraints.append("期待リターン/ベア損失が1.0x未満")
+    if expected_return is not None and expected_return < DEFAULT_THRESHOLDS["min_expected_return"]:
+        constraints.append(f"期待リターン{DEFAULT_THRESHOLDS['min_expected_return']:.0%}未満")
+    if bear_return is not None and bear_return < DEFAULT_THRESHOLDS["max_bear_loss"]:
+        constraints.append(f"ベアケース下落{abs(DEFAULT_THRESHOLDS['max_bear_loss']):.0%}超")
+    if risk_reward is not None and risk_reward < DEFAULT_THRESHOLDS["min_risk_reward"]:
+        constraints.append(f"期待リターン/ベア損失が{DEFAULT_THRESHOLDS['min_risk_reward']:.1f}x未満")
 
     readiness = investability.get("readiness")
     score = investability.get("score", 0)
@@ -959,6 +1022,9 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
     brief = decision_brief(investability)
     position = estimate_position_size(investability, coverage)
     refutation = refutation_plan(data, valuation_result, investability)
+    freshness = data_freshness(data, catalog)
+    sensitivity = valuation_sensitivity(data, valuation_result)
+    portfolio = portfolio_impact(data, investability, position)
 
     ticker = md_escape(company.get("ticker", ""))
     name = md_escape(company.get("name", ""))
@@ -1018,6 +1084,35 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
         f"- 理由: {md_escape(position['rationale'])}",
     ])
     lines.extend([f"- 制約: {md_escape(item)}" for item in position["constraints"]])
+    lines.extend(
+        [
+            "",
+            "## 5A. ポートフォリオ影響チェック",
+            "",
+            f"- 追加比率: {safe_pct(portfolio['proposed_weight'])}",
+            f"- 銘柄合計: {safe_pct(portfolio['total_weight'])} / 上限 {safe_pct(portfolio['max_position_weight'])}",
+            f"- セクター合計: {safe_pct(portfolio['sector_after'])} / 上限 {safe_pct(portfolio['max_sector_weight'])}",
+            f"- 想定投資額: {compact_number(portfolio['proposed_value'], company.get('currency', '')) if portfolio['proposed_value'] is not None else '-'}",
+            f"- ベアケース寄与損失: {safe_pct(portfolio['downside_contribution'])}",
+        ]
+    )
+    lines.extend([f"- 制約: {md_escape(item)}" for item in portfolio["constraints"]] or ["- 制約: 上限超過なし"])
+    if portfolio["tags"]:
+        lines.append(f"- タグ: {' / '.join(md_escape(tag) for tag in portfolio['tags'])}")
+    lines.extend(
+        [
+            "",
+            "## 5B. データ鮮度ダッシュボード",
+            "",
+            f"- 基準日: {freshness['as_of']}",
+            f"- 期限超過: {freshness['stale_count']} / 未入力: {freshness['missing_count']}",
+            "|カテゴリ|状態|最新日|経過|基準|件数|",
+            "|---|---|---|---:|---:|---:|",
+        ]
+    )
+    for row in freshness["rows"]:
+        age = "-" if row["age_days"] is None else f"{row['age_days']}日"
+        lines.append(f"|{md_escape(row['name'])}|{row['status']}|{row['latest'] or '-'}|{age}|{row['limit_days']}日|{row['count']}|")
     lines.extend([
         "",
         "## 6. 未充足データ優先度",
@@ -1102,6 +1197,17 @@ def build_summary(data: dict[str, Any], catalog: dict[str, Any], include_catalog
                 f"|{md_escape(row['name'])}|{safe_pct(row['probability'], 0)}|"
                 f"{compact_number(row['revenue'], valuation_result.get('currency', ''))}|{safe_pct(row['ebitda_margin'])}|"
                 f"{row['ev_ebitda']:.1f}x|{valuation_result.get('currency', '')}{row['price']:.2f}|"
+            )
+
+    if sensitivity:
+        lines.extend(["", "## 14A. バリュエーション感応度", ""])
+        lines.append("|ケース|売上|EBITDA率|倍率|株価|現値比|")
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        for row in sensitivity:
+            lines.append(
+                f"|{md_escape(row['label'])}|{compact_number(row['revenue'], valuation_result.get('currency', ''))}|"
+                f"{safe_pct(row['ebitda_margin'])}|{row['ev_ebitda']:.1f}x|"
+                f"{valuation_result.get('currency', '')}{row['price']:.2f}|{safe_pct(row['return'])}|"
             )
 
     lines.extend(["", "## 15. エージェント実行計画", ""])
@@ -1522,6 +1628,139 @@ def calculate_valuation(valuation: Any) -> dict[str, Any]:
     }
 
 
+def data_freshness(data: dict[str, Any], catalog: dict[str, Any]) -> dict[str, Any]:
+    evidence = data.get("evidence", [])
+    if not isinstance(evidence, list):
+        evidence = []
+    company = data.get("company", {}) if isinstance(data.get("company"), dict) else {}
+    as_of = parse_date(company.get("as_of")) or dt.date.today()
+    rows = []
+    for category in catalog.get("categories", []):
+        category_id = category.get("id", "")
+        dates = [
+            parse_date(row.get("date"))
+            for row in evidence
+            if isinstance(row, dict) and normalize_id(row.get("category")) == category_id
+        ]
+        valid_dates = [date for date in dates if date is not None]
+        latest = max(valid_dates) if valid_dates else None
+        age = (as_of - latest).days if latest else None
+        limit = STALE_DAYS.get(category_id, 90)
+        if latest is None:
+            status = "未入力"
+        elif age is not None and age > limit:
+            status = "古い"
+        else:
+            status = "OK"
+        rows.append(
+            {
+                "id": category_id,
+                "name": category.get("name", category_id),
+                "latest": latest.isoformat() if latest else "",
+                "age_days": age,
+                "limit_days": limit,
+                "status": status,
+                "count": sum(1 for row in evidence if isinstance(row, dict) and normalize_id(row.get("category")) == category_id),
+            }
+        )
+    return {
+        "as_of": as_of.isoformat(),
+        "rows": rows,
+        "stale_count": sum(1 for row in rows if row["status"] == "古い"),
+        "missing_count": sum(1 for row in rows if row["status"] == "未入力"),
+    }
+
+
+def valuation_sensitivity(data: dict[str, Any], valuation_result: dict[str, Any]) -> list[dict[str, Any]]:
+    scenarios = valuation_result.get("scenarios", [])
+    valuation = data.get("valuation", {})
+    if not scenarios or not isinstance(valuation, dict):
+        return []
+    base = next((row for row in scenarios if "base" in normalize_id(row.get("name"))), scenarios[len(scenarios) // 2])
+    try:
+        shares = float(valuation.get("shares_outstanding", 0))
+        net_debt = float(valuation.get("net_debt", 0))
+        current_price = float(valuation.get("current_price", 0))
+    except (TypeError, ValueError):
+        return []
+    if shares <= 0:
+        return []
+    shocks = [
+        ("Downside", -0.10, -0.02, -1.0),
+        ("Revenue -10%", -0.10, 0.0, 0.0),
+        ("Margin -2pt", 0.0, -0.02, 0.0),
+        ("Multiple -1x", 0.0, 0.0, -1.0),
+        ("Base", 0.0, 0.0, 0.0),
+        ("Multiple +1x", 0.0, 0.0, 1.0),
+        ("Margin +2pt", 0.0, 0.02, 0.0),
+        ("Revenue +10%", 0.10, 0.0, 0.0),
+        ("Upside", 0.10, 0.02, 1.0),
+    ]
+    rows = []
+    for label, revenue_delta, margin_delta, multiple_delta in shocks:
+        revenue = float(base.get("revenue", 0)) * (1 + revenue_delta)
+        ebitda_margin = max(0.0, float(base.get("ebitda_margin", 0)) + margin_delta)
+        ev_ebitda = max(0.0, float(base.get("ev_ebitda", 0)) + multiple_delta)
+        price = ((revenue * ebitda_margin * ev_ebitda) - net_debt) / shares
+        rows.append(
+            {
+                "label": label,
+                "revenue": revenue,
+                "ebitda_margin": ebitda_margin,
+                "ev_ebitda": ev_ebitda,
+                "price": price,
+                "return": None if current_price <= 0 else price / current_price - 1,
+            }
+        )
+    return rows
+
+
+def portfolio_impact(data: dict[str, Any], investability: dict[str, Any], position: dict[str, Any]) -> dict[str, Any]:
+    portfolio = data.get("portfolio", {})
+    if not isinstance(portfolio, dict):
+        portfolio = {}
+
+    def number(key: str, default: float) -> float:
+        try:
+            return float(portfolio.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    portfolio_value = number("portfolio_value", 0.0)
+    current_weight = number("current_weight", 0.0)
+    proposed_weight = number("proposed_weight", DEFAULT_THRESHOLDS["max_position_weight"])
+    sector_weight = number("sector_weight", 0.0)
+    max_position_weight = number("max_position_weight", DEFAULT_THRESHOLDS["max_position_weight"])
+    max_sector_weight = number("max_sector_weight", DEFAULT_THRESHOLDS["max_sector_weight"])
+    total_weight = current_weight + proposed_weight
+    sector_after = sector_weight + proposed_weight
+    bear_return = investability.get("bear_return")
+    downside_contribution = None if bear_return is None else proposed_weight * abs(float(bear_return))
+    constraints = []
+    if total_weight > max_position_weight:
+        constraints.append(f"1銘柄上限{safe_pct(max_position_weight)}を超過")
+    if sector_after > max_sector_weight:
+        constraints.append(f"セクター上限{safe_pct(max_sector_weight)}を超過")
+    if position.get("max_initial_weight") == "0%":
+        constraints.append("投資判断ゲート上は新規投資不可")
+    if investability.get("blockers"):
+        constraints.append("未解消ブロッカーあり")
+    return {
+        "portfolio_value": portfolio_value,
+        "current_weight": current_weight,
+        "proposed_weight": proposed_weight,
+        "proposed_value": portfolio_value * proposed_weight if portfolio_value else None,
+        "sector_weight": sector_weight,
+        "total_weight": total_weight,
+        "sector_after": sector_after,
+        "max_position_weight": max_position_weight,
+        "max_sector_weight": max_sector_weight,
+        "downside_contribution": downside_contribution,
+        "constraints": constraints,
+        "tags": portfolio.get("tags", []) if isinstance(portfolio.get("tags"), list) else [],
+    }
+
+
 def evidence_from_csv(path: Path) -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -1529,13 +1768,43 @@ def evidence_from_csv(path: Path) -> list[dict[str, Any]]:
         for row in reader:
             if not any(str(value or "").strip() for value in row.values()):
                 continue
-            rows.append({column: str(row.get(column, "") or "").strip() for column in CSV_COLUMNS})
+            normalized = {normalize_id(key).lstrip("\ufeff"): str(value or "").strip() for key, value in row.items()}
+            rows.append({column: normalized.get(column, "") for column in CSV_COLUMNS})
         return rows
+
+
+def csv_evidence_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "category": row.get("category", ""),
+        "item": row.get("item", ""),
+        "value": row.get("value", ""),
+        "interpretation": row.get("interpretation", ""),
+        "source": row.get("source", ""),
+        "source_url": row.get("source_url", ""),
+        "date": row.get("date", "") or today_iso(),
+        "confidence": row.get("confidence", "") or "medium",
+        "direction": row.get("direction", "") or "neutral",
+        "materiality": row.get("materiality", "") or "medium",
+        "source_type": row.get("source_type", "") or "unknown",
+    }
 
 
 def jp_import_template() -> str:
     sample_rows = [
         {
+            "company_ticker": "7203",
+            "company_name": "サンプル株式会社",
+            "market": "JP",
+            "sector": "Industrials",
+            "currency": "JPY",
+            "as_of": today_iso(),
+            "thesis": "一次情報とバリュエーションを揃えて投資候補化できるか検証する。",
+            "portfolio_value": "10000000",
+            "current_weight": "0",
+            "proposed_weight": "0.01",
+            "sector_weight": "0.08",
+            "max_position_weight": "0.04",
+            "max_sector_weight": "0.25",
             "category": "financials",
             "item": "EDINET 有価証券報告書",
             "value": "売上高、営業利益、営業CF、総資産などを入力",
@@ -1578,7 +1847,7 @@ def jp_import_template() -> str:
     out = []
     out.append(",".join(CSV_COLUMNS))
     for row in sample_rows:
-        out.append(",".join(csv_quote(row[column]) for column in CSV_COLUMNS))
+        out.append(",".join(csv_quote(row.get(column, "")) for column in CSV_COLUMNS))
     return "\n".join(out) + "\n"
 
 
@@ -1622,11 +1891,61 @@ def format_agent_plan_markdown(playbook: dict[str, Any], compact: bool = False) 
     return "\n".join(lines).rstrip() + "\n"
 
 
+def apply_csv_metadata(data: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    first = next((row for row in rows if any(row.get(column) for column in CSV_METADATA_COLUMNS)), {})
+    company = data.setdefault("company", {})
+    if first.get("company_ticker") or first.get("ticker"):
+        company["ticker"] = first.get("company_ticker") or first.get("ticker")
+    if first.get("company_name"):
+        company["name"] = first["company_name"]
+    for field in ["market", "sector", "currency", "as_of"]:
+        if first.get(field):
+            company[field] = first[field]
+    if first.get("thesis"):
+        data["thesis"] = first["thesis"]
+    portfolio_fields = [
+        "portfolio_value",
+        "current_weight",
+        "proposed_weight",
+        "sector_weight",
+        "max_position_weight",
+        "max_sector_weight",
+    ]
+    portfolio_patch: dict[str, Any] = {}
+    for field in portfolio_fields:
+        if first.get(field) not in [None, ""]:
+            try:
+                portfolio_patch[field] = float(first[field])
+            except (TypeError, ValueError):
+                portfolio_patch[field] = first[field]
+    if portfolio_patch:
+        data["portfolio"] = {**data.get("portfolio", {}), **portfolio_patch}
+    return data
+
+
 def merge_csv_into_data(base: dict[str, Any], csv_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    result = json.loads(json.dumps(base, ensure_ascii=False))
-    result.setdefault("evidence", [])
-    result["evidence"].extend(csv_rows)
-    return result
+    fallback_ticker = str(base.get("company", {}).get("ticker", "") or "CSV").strip()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    active_ticker = fallback_ticker
+    for row in csv_rows:
+        explicit_ticker = row.get("company_ticker") or row.get("ticker")
+        if explicit_ticker:
+            active_ticker = explicit_ticker
+        ticker = explicit_ticker or active_ticker
+        grouped.setdefault(ticker, []).append(row)
+
+    def build_company(rows: list[dict[str, Any]], include_base_evidence: bool) -> dict[str, Any]:
+        result = json.loads(json.dumps(base, ensure_ascii=False))
+        apply_csv_metadata(result, rows)
+        if not include_base_evidence:
+            result["evidence"] = []
+        result.setdefault("evidence", [])
+        result["evidence"].extend(csv_evidence_row(row) for row in rows)
+        return result
+
+    if len(grouped) <= 1:
+        return build_company(next(iter(grouped.values()), []), True)
+    return {"companies": [build_company(rows, False) for rows in grouped.values()]}
 
 
 def run_catalog(args: argparse.Namespace) -> None:

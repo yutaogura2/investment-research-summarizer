@@ -81,6 +81,8 @@ PythonがPATHにある環境では、`python tools/invest_research_tool.py ...` 
 
 `category` は `data/information_catalog.json` のIDを使います。`direction` は `positive`、`negative`、`neutral`、`mixed`、`unknown`、`confidence` と `materiality` は `high`、`medium`、`low` を想定しています。`source_type` は `primary_filing`、`exchange`、`regulator`、`company_ir`、`market_data`、`consensus`、`sell_side`、`manual_model`、`internal`、`unknown` を使います。
 
+CSVでは上記エビデンス列に加えて、任意で `company_ticker`、`company_name`、`market`、`sector`、`currency`、`as_of`、`thesis`、`portfolio_value`、`current_weight`、`proposed_weight`、`sector_weight`、`max_position_weight`、`max_sector_weight` を指定できます。複数ティッカーを含むCSVは `companies` 配列に分割して取り込みます。
+
 ## 実装済みフェーズ
 
 ### Phase 1: 入力検証・スコアリング改善・フォーム化
@@ -119,6 +121,15 @@ PythonがPATHにある環境では、`python tools/invest_research_tool.py ...` 
 
 - Orchestrator、Filing、Financial、Valuation、Market & Flow、Consensus、Risk、Audit の役割と成果物を定義
 - サマリ末尾に実行計画を表示
+
+### Phase 6: 運用・投資判断ワークフロー
+
+- ウォッチリスト、投資判断ログ、決算後レビューをブラウザ内に保存
+- データ鮮度ダッシュボードでカテゴリ別の最新日、期限超過、未入力を表示
+- バリュエーション感応度表で売上、利益率、倍率ショックの株価影響を確認
+- ポートフォリオ影響チェックで追加比率、銘柄上限、セクター上限、ベアケース寄与損失を表示
+- しきい値設定でカバレッジ、一次情報比率、期待リターン、R/R、ポジション上限を調整
+- CSV一括取り込みで銘柄メタデータ、ポートフォリオ前提、複数ティッカーを処理
 
 ## 情報カテゴリ
 

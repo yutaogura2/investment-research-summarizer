@@ -107,6 +107,72 @@
           </div>
         </form>
         <textarea id="jsonInput" spellcheck="false" aria-label="会社別エビデンスJSON"></textarea>
+        <section class="workflow-panel" aria-labelledby="workflow-title">
+          <div class="workflow-header">
+            <h2 id="workflow-title">運用</h2>
+            <span id="storageStatus" class="muted">保存状態: -</span>
+          </div>
+          <div class="workflow-grid">
+            <label>
+              ウォッチリスト
+              <select id="watchlistSelect"></select>
+            </label>
+            <div class="button-row">
+              <button type="button" id="saveWatchButton">保存</button>
+              <button type="button" id="loadWatchButton">読込</button>
+              <button type="button" id="deleteWatchButton">削除</button>
+            </div>
+            <label>
+              決算後レビュー
+              <textarea id="reviewNote" rows="3" placeholder="実績、仮説との差、次回判断を記録"></textarea>
+            </label>
+            <div class="button-row">
+              <button type="button" id="logDecisionButton">判断ログ記録</button>
+              <button type="button" id="saveReviewButton">レビュー保存</button>
+            </div>
+          </div>
+          <details class="settings-box">
+            <summary>しきい値・CSV</summary>
+            <div class="settings-grid">
+              <label>
+                カバレッジ下限(%)
+                <input id="settingCoverage" type="number" min="0" max="100" step="1" />
+              </label>
+              <label>
+                一次情報比率下限(%)
+                <input id="settingPrimaryRatio" type="number" min="0" max="100" step="1" />
+              </label>
+              <label>
+                期待リターン下限(%)
+                <input id="settingExpectedReturn" type="number" min="-100" max="300" step="1" />
+              </label>
+              <label>
+                ベア損失下限(%)
+                <input id="settingBearLoss" type="number" min="-100" max="0" step="1" />
+              </label>
+              <label>
+                R/R下限(x)
+                <input id="settingRiskReward" type="number" min="0" max="10" step="0.1" />
+              </label>
+              <label>
+                1銘柄上限(%)
+                <input id="settingMaxPosition" type="number" min="0" max="100" step="0.5" />
+              </label>
+              <label>
+                セクター上限(%)
+                <input id="settingMaxSector" type="number" min="0" max="100" step="1" />
+              </label>
+            </div>
+            <div class="button-row">
+              <button type="button" id="saveSettingsButton">しきい値保存</button>
+              <button type="button" id="resetSettingsButton">初期値</button>
+              <label class="file-control">
+                <input type="file" id="csvInput" accept=".csv,text/csv" />
+                CSV一括取込
+              </label>
+            </div>
+          </details>
+        </section>
         <div class="file-row">
           <label class="file-control">
             <input type="file" id="fileInput" accept="application/json,.json" />
